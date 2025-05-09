@@ -45,13 +45,27 @@ public:
 
     virtual std::any visitExpr(MiniCParser::ExprContext *context) = 0;
 
-    virtual std::any visitAddExp(MiniCParser::AddExpContext *context) = 0;
+    virtual std::any visitPassToMulExpr(MiniCParser::PassToMulExprContext *context) = 0;
 
-    virtual std::any visitAddOp(MiniCParser::AddOpContext *context) = 0;
+    virtual std::any visitAddSubExpr(MiniCParser::AddSubExprContext *context) = 0;
 
-    virtual std::any visitUnaryExp(MiniCParser::UnaryExpContext *context) = 0;
+    virtual std::any visitPassToUnaryExpr(MiniCParser::PassToUnaryExprContext *context) = 0;
 
-    virtual std::any visitPrimaryExp(MiniCParser::PrimaryExpContext *context) = 0;
+    virtual std::any visitMulDivModExpr(MiniCParser::MulDivModExprContext *context) = 0;
+
+    virtual std::any visitNegationExpr(MiniCParser::NegationExprContext *context) = 0;
+
+    virtual std::any visitPassToPrimaryExpr(MiniCParser::PassToPrimaryExprContext *context) = 0;
+
+    virtual std::any visitParenthesizedExpr(MiniCParser::ParenthesizedExprContext *context) = 0;
+
+    virtual std::any visitIntegerAtom(MiniCParser::IntegerAtomContext *context) = 0;
+
+    virtual std::any visitLValAtom(MiniCParser::LValAtomContext *context) = 0;
+
+    virtual std::any visitFunctionCallAtom(MiniCParser::FunctionCallAtomContext *context) = 0;
+
+    virtual std::any visitIntegerLiteral(MiniCParser::IntegerLiteralContext *context) = 0;
 
     virtual std::any visitRealParamList(MiniCParser::RealParamListContext *context) = 0;
 

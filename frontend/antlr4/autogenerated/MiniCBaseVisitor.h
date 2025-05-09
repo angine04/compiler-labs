@@ -67,19 +67,47 @@ public:
     return visitChildren(ctx);
   }
 
-  virtual std::any visitAddExp(MiniCParser::AddExpContext *ctx) override {
+  virtual std::any visitPassToMulExpr(MiniCParser::PassToMulExprContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitAddOp(MiniCParser::AddOpContext *ctx) override {
+  virtual std::any visitAddSubExpr(MiniCParser::AddSubExprContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitUnaryExp(MiniCParser::UnaryExpContext *ctx) override {
+  virtual std::any visitPassToUnaryExpr(MiniCParser::PassToUnaryExprContext *ctx) override {
     return visitChildren(ctx);
   }
 
-  virtual std::any visitPrimaryExp(MiniCParser::PrimaryExpContext *ctx) override {
+  virtual std::any visitMulDivModExpr(MiniCParser::MulDivModExprContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitNegationExpr(MiniCParser::NegationExprContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitPassToPrimaryExpr(MiniCParser::PassToPrimaryExprContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitParenthesizedExpr(MiniCParser::ParenthesizedExprContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitIntegerAtom(MiniCParser::IntegerAtomContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitLValAtom(MiniCParser::LValAtomContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitFunctionCallAtom(MiniCParser::FunctionCallAtomContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitIntegerLiteral(MiniCParser::IntegerLiteralContext *ctx) override {
     return visitChildren(ctx);
   }
 

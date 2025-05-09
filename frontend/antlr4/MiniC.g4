@@ -41,20 +41,32 @@ statement:
 	| block								# blockStatement
 	| expr? T_SEMICOLON					# expressionStatement;
 
-// 表达式文法 expr : AddExp 表达式目前只支持加法与减法运算
-expr: addExp;
+// 表达式文法
+expr:
+	addExpr; // Potentially, could be assignExpr if assignments were expressions
 
-// 加减表达式
-addExp: unaryExp (addOp unaryExp)*;
+addExpr:
+	mulExpr								# passToMulExpr
+	| addExpr (T_ADD | T_SUB) mulExpr	# addSubExpr;
 
-// 加减运算符
-addOp: T_ADD | T_SUB;
+mulExpr:
+	unaryExpr									# passToUnaryExpr
+	| mulExpr (T_MUL | T_DIV | T_MOD) unaryExpr	# mulDivModExpr;
 
-// 一元表达式
-unaryExp: primaryExp | T_ID T_L_PAREN realParamList? T_R_PAREN;
+unaryExpr:
+	T_SUB unaryExpr	# negationExpr
+	| primaryExpr	# passToPrimaryExpr;
 
-// 基本表达式：括号表达式、整数、左值表达式
-primaryExp: T_L_PAREN expr T_R_PAREN | T_DIGIT | lVal;
+primaryExpr:
+	T_L_PAREN expr T_R_PAREN					# parenthesizedExpr
+	| integerLiteral							# integerAtom
+	| lVal										# lValAtom
+	| T_ID T_L_PAREN realParamList? T_R_PAREN	# functionCallAtom; // Assuming func calls are primary
+
+integerLiteral:
+	T_HEX_LITERAL
+	| T_OCT_LITERAL
+	| T_DEC_LITERAL; // Rule to group all integer literal types
 
 // 实参列表
 realParamList: expr (T_COMMA expr)*;
@@ -75,14 +87,25 @@ T_COMMA: ',';
 
 T_ADD: '+';
 T_SUB: '-';
+T_MUL: '*';
+T_DIV: '/';
+T_MOD: '%';
 
 // 要注意关键字同样也属于T_ID，因此必须放在T_ID的前面，否则会识别成T_ID
 T_RETURN: 'return';
 T_INT: 'int';
-T_VOID: 'void';
+// T_VOID: 'void'; // MiniC current spec does not seem to use void for func return
 
 T_ID: [a-zA-Z_][a-zA-Z0-9_]*;
-T_DIGIT: '0' | [1-9][0-9]*;
+
+// Integer Literals Order is important: Hex, then Octal, then Decimal to avoid ambiguity e.g., "0"
+// should be Decimal, not a prefix of an Octal. "012" is Octal, "12" is Decimal, "0x12" is Hex.
+T_HEX_LITERAL: '0' [xX] [0-9a-fA-F]+;
+T_OCT_LITERAL:
+	'0' [0-7]+; // Ensures it's at least '0' followed by one octal digit
+T_DEC_LITERAL:
+	[1-9] [0-9]*
+	| '0'; // Decimal numbers, or a single '0'
 
 /* 空白符丢弃 */
 WS: [ \r\n\t]+ -> skip;
