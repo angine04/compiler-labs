@@ -47,6 +47,10 @@ IRGenerator::IRGenerator(ast_node * _root, Module * _module) : root(_root), modu
     /* 表达式运算， 加减 */
     ast2ir_handlers[ast_operator_type::AST_OP_SUB] = &IRGenerator::ir_sub;
     ast2ir_handlers[ast_operator_type::AST_OP_ADD] = &IRGenerator::ir_add;
+    ast2ir_handlers[ast_operator_type::AST_OP_MUL] = &IRGenerator::ir_mul;
+    ast2ir_handlers[ast_operator_type::AST_OP_DIV] = &IRGenerator::ir_div;
+    ast2ir_handlers[ast_operator_type::AST_OP_MOD] = &IRGenerator::ir_mod;
+    ast2ir_handlers[ast_operator_type::AST_OP_NEG] = &IRGenerator::ir_neg;
 
     /* 语句 */
     ast2ir_handlers[ast_operator_type::AST_OP_ASSIGN] = &IRGenerator::ir_assign;
@@ -421,23 +425,16 @@ bool IRGenerator::ir_sub(ast_node * node)
     ast_node * src1_node = node->sons[0];
     ast_node * src2_node = node->sons[1];
 
-    // 加法节点，左结合，先计算左节点，后计算右节点
-
-    // 加法的左边操作数
+    // 减法节点，左结合，先计算左节点，后计算右节点
     ast_node * left = ir_visit_ast_node(src1_node);
     if (!left) {
-        // 某个变量没有定值
         return false;
     }
 
-    // 加法的右边操作数
     ast_node * right = ir_visit_ast_node(src2_node);
     if (!right) {
-        // 某个变量没有定值
         return false;
     }
-
-    // 这里只处理整型的数据，如需支持实数，则需要针对类型进行处理
 
     BinaryInstruction * subInst = new BinaryInstruction(module->getCurrentFunction(),
                                                         IRInstOperator::IRINST_OP_SUB_I,
@@ -445,11 +442,9 @@ bool IRGenerator::ir_sub(ast_node * node)
                                                         right->val,
                                                         IntegerType::getTypeInt());
 
-    // 创建临时变量保存IR的值，以及线性IR指令
     node->blockInsts.addInst(left->blockInsts);
     node->blockInsts.addInst(right->blockInsts);
     node->blockInsts.addInst(subInst);
-
     node->val = subInst;
 
     return true;
@@ -611,6 +606,127 @@ bool IRGenerator::ir_variable_declare(ast_node * node)
     // TODO 这里可强化类型等检查
 
     node->val = module->newVarValue(node->sons[0]->type, node->sons[1]->name);
+
+    return true;
+}
+
+/// @brief 新增：整数乘法AST节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_mul(ast_node * node)
+{
+    ast_node * src1_node = node->sons[0];
+    ast_node * src2_node = node->sons[1];
+
+    ast_node * left = ir_visit_ast_node(src1_node);
+    if (!left)
+        return false;
+    ast_node * right = ir_visit_ast_node(src2_node);
+    if (!right)
+        return false;
+
+    BinaryInstruction * mulInst = new BinaryInstruction(module->getCurrentFunction(),
+                                                        IRInstOperator::IRINST_OP_MUL_I,
+                                                        left->val,
+                                                        right->val,
+                                                        IntegerType::getTypeInt());
+
+    node->blockInsts.addInst(left->blockInsts);
+    node->blockInsts.addInst(right->blockInsts);
+    node->blockInsts.addInst(mulInst);
+    node->val = mulInst;
+
+    return true;
+}
+
+/// @brief 新增：整数有符号除法AST节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_div(ast_node * node)
+{
+    ast_node * src1_node = node->sons[0];
+    ast_node * src2_node = node->sons[1];
+
+    ast_node * left = ir_visit_ast_node(src1_node);
+    if (!left)
+        return false;
+    ast_node * right = ir_visit_ast_node(src2_node);
+    if (!right)
+        return false;
+
+    // TODO: 考虑除零错误的处理，可以在语义分析或这里添加运行时检查
+
+    BinaryInstruction * divInst = new BinaryInstruction(module->getCurrentFunction(),
+                                                        IRInstOperator::IRINST_OP_DIV_I,
+                                                        left->val,
+                                                        right->val,
+                                                        IntegerType::getTypeInt());
+
+    node->blockInsts.addInst(left->blockInsts);
+    node->blockInsts.addInst(right->blockInsts);
+    node->blockInsts.addInst(divInst);
+    node->val = divInst;
+
+    return true;
+}
+
+/// @brief 新增：整数有符号求余AST节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_mod(ast_node * node)
+{
+    ast_node * src1_node = node->sons[0];
+    ast_node * src2_node = node->sons[1];
+
+    ast_node * left = ir_visit_ast_node(src1_node);
+    if (!left)
+        return false;
+    ast_node * right = ir_visit_ast_node(src2_node);
+    if (!right)
+        return false;
+
+    // TODO: 考虑除零错误的处理
+
+    BinaryInstruction * remInst = new BinaryInstruction(module->getCurrentFunction(),
+                                                        IRInstOperator::IRINST_OP_REM_I,
+                                                        left->val,
+                                                        right->val,
+                                                        IntegerType::getTypeInt());
+
+    node->blockInsts.addInst(left->blockInsts);
+    node->blockInsts.addInst(right->blockInsts);
+    node->blockInsts.addInst(remInst);
+    node->val = remInst;
+
+    return true;
+}
+
+/// @brief 新增：单目取负AST节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_neg(ast_node * node)
+{
+    ast_node * operand_node = node->sons[0];
+
+    ast_node * operand = ir_visit_ast_node(operand_node);
+    if (!operand)
+        return false;
+
+    Value * zero_val = module->newConstInt(0);
+    if (!zero_val) {
+        // 如果模块无法提供常量0，这是个问题
+        return false;
+    }
+
+    BinaryInstruction * negInst = new BinaryInstruction(module->getCurrentFunction(),
+                                                        IRInstOperator::IRINST_OP_SUB_I, // 使用 SUB 实现 0 - operand
+                                                        zero_val,
+                                                        operand->val,
+                                                        IntegerType::getTypeInt());
+
+    node->blockInsts.addInst(operand->blockInsts);
+    node->blockInsts.addInst(negInst);
+    node->val = negInst;
 
     return true;
 }
