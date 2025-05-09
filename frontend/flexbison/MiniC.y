@@ -50,6 +50,7 @@ void yyerror(char * msg);
 
 // 运算符
 %token T_ASSIGN T_SUB T_ADD
+%token T_MUL T_DIV T_MOD
 
 // 非终结符
 // %type指定文法的非终结符号，<>可指定文法属性
