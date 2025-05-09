@@ -49,6 +49,9 @@ InstSelectorArm32::InstSelectorArm32(vector<Instruction *> & _irCode,
 
     translator_handlers[IRInstOperator::IRINST_OP_ADD_I] = &InstSelectorArm32::translate_add_int32;
     translator_handlers[IRInstOperator::IRINST_OP_SUB_I] = &InstSelectorArm32::translate_sub_int32;
+    translator_handlers[IRInstOperator::IRINST_OP_MUL_I] = &InstSelectorArm32::translate_mul_int32;
+    translator_handlers[IRInstOperator::IRINST_OP_DIV_I] = &InstSelectorArm32::translate_div_int32;
+    translator_handlers[IRInstOperator::IRINST_OP_REM_I] = &InstSelectorArm32::translate_rem_int32;
 
     translator_handlers[IRInstOperator::IRINST_OP_FUNC_CALL] = &InstSelectorArm32::translate_call;
     translator_handlers[IRInstOperator::IRINST_OP_ARG] = &InstSelectorArm32::translate_arg;
@@ -301,6 +304,95 @@ void InstSelectorArm32::translate_add_int32(Instruction * inst)
 void InstSelectorArm32::translate_sub_int32(Instruction * inst)
 {
     translate_two_operator(inst, "sub");
+}
+
+/// @brief 整数乘法指令翻译成ARM32汇编 (新实现)
+void InstSelectorArm32::translate_mul_int32(Instruction * inst)
+{
+    translate_two_operator(inst, "mul");
+}
+
+/// @brief 整数有符号除法指令翻译成ARM32汇编 (新实现)
+void InstSelectorArm32::translate_div_int32(Instruction * inst)
+{
+    translate_two_operator(inst, "sdiv");
+}
+
+/// @brief 整数有符号求余指令翻译成ARM32汇编 (新实现)
+void InstSelectorArm32::translate_rem_int32(Instruction * inst)
+{
+    Value * result_val = inst;
+    Value * arg1_val = inst->getOperand(0); // Dividend (a)
+    Value * arg2_val = inst->getOperand(1); // Divisor (b)
+
+    int32_t arg1_reg_no = arg1_val->getRegId();
+    int32_t arg2_reg_no = arg2_val->getRegId();
+    int32_t result_reg_no = result_val->getRegId();
+
+    int32_t load_arg1_reg_no, load_arg2_reg_no, load_result_reg_no;
+    int32_t temp_reg_for_div_result; // 临时寄存器存储 a/b 的结果
+
+    // 加载 arg1 (被除数 a) 到寄存器
+    if (arg1_reg_no == -1) {
+        load_arg1_reg_no = simpleRegisterAllocator.Allocate(arg1_val);
+        iloc.load_var(load_arg1_reg_no, arg1_val);
+    } else {
+        load_arg1_reg_no = arg1_reg_no;
+    }
+
+    // 加载 arg2 (除数 b) 到寄存器
+    if (arg2_reg_no == -1) {
+        load_arg2_reg_no = simpleRegisterAllocator.Allocate(arg2_val);
+        iloc.load_var(load_arg2_reg_no, arg2_val);
+    } else {
+        load_arg2_reg_no = arg2_reg_no;
+    }
+
+    // 为 a/b 的中间结果分配临时寄存器
+    temp_reg_for_div_result = simpleRegisterAllocator.Allocate();
+
+    // 计算 a / b (结果在 temp_reg_for_div_result)
+    iloc.inst("sdiv",
+              PlatformArm32::regName[temp_reg_for_div_result],
+              PlatformArm32::regName[load_arg1_reg_no],
+              PlatformArm32::regName[load_arg2_reg_no]);
+
+    // 如果结果最终需要存入内存，或者指定的寄存器与临时寄存器不同，准备最终结果寄存器
+    if (result_reg_no == -1) {
+        load_result_reg_no = simpleRegisterAllocator.Allocate(result_val);
+    } else {
+        load_result_reg_no = result_reg_no;
+    }
+
+    // 计算 (a/b) * b，结果仍然可以放在 temp_reg_for_div_result (如果它不与 load_result_reg_no 冲突)
+    // 或者更安全，使用另一个临时寄存器如果担心冲突，但这里我们直接覆盖 temp_reg_for_div_result
+    iloc.inst("mul",
+              PlatformArm32::regName[temp_reg_for_div_result], // Rd: (a/b)*b
+              PlatformArm32::regName[temp_reg_for_div_result], // Rn: a/b
+              PlatformArm32::regName[load_arg2_reg_no]);       // Rm: b
+
+    // 计算 a - ((a/b)*b) (结果在 load_result_reg_no)
+    iloc.inst("sub",
+              PlatformArm32::regName[load_result_reg_no],       // Rd: final result
+              PlatformArm32::regName[load_arg1_reg_no],         // Rn: a
+              PlatformArm32::regName[temp_reg_for_div_result]); // Rm: (a/b)*b
+
+    // 如果结果最初不在寄存器中 (result_reg_no == -1)，则需要将 load_result_reg_no 中的值存储回内存
+    if (result_reg_no == -1) {
+        iloc.store_var(load_result_reg_no, result_val, ARM32_TMP_REG_NO);
+    }
+
+    // 释放为 a/b 分配的临时寄存器
+    simpleRegisterAllocator.free(temp_reg_for_div_result);
+
+    // 释放操作数和结果（如果它们是临时分配的）
+    if (arg1_reg_no == -1)
+        simpleRegisterAllocator.free(arg1_val);
+    if (arg2_reg_no == -1)
+        simpleRegisterAllocator.free(arg2_val);
+    if (result_reg_no == -1 && load_result_reg_no != result_reg_no) { // 如果为结果分配了新的寄存器
+        simpleRegisterAllocator.free(result_val); // 释放与result_val关联的寄存器（现在是load_result_reg_no）
+    }
 }
 
 /// @brief 函数调用指令翻译成ARM32汇编
