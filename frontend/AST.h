@@ -87,7 +87,11 @@ enum class ast_operator_type : int {
     AST_OP_ADD,
 
     /// @brief 二元运算符*
-    AST_OP_SUB, //
+    AST_OP_SUB, // 减法
+    AST_OP_MUL, // 乘法 (新添加)
+    AST_OP_DIV, // 除法 (新添加)
+    AST_OP_MOD, // 求余 (新添加)
+    AST_OP_NEG, // 单目取负 (新添加)
 
     // TODO 抽象语法树其它内部节点运算符追加
 
