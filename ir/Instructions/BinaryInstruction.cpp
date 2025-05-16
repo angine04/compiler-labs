@@ -54,10 +54,10 @@ void BinaryInstruction::toString(std::string & str)
             str = getIRName() + " = mul " + src1->getIRName() + "," + src2->getIRName();
             break;
         case IRInstOperator::IRINST_OP_DIV_I:
-            str = getIRName() + " = sdiv " + src1->getIRName() + "," + src2->getIRName();
+            str = getIRName() + " = div " + src1->getIRName() + "," + src2->getIRName();
             break;
         case IRInstOperator::IRINST_OP_REM_I:
-            str = getIRName() + " = srem " + src1->getIRName() + "," + src2->getIRName();
+            str = getIRName() + " = mod " + src1->getIRName() + "," + src2->getIRName();
             break;
 
         default:

@@ -62,140 +62,156 @@ static RDTokenType getKeywordToken(std::string id)
 /// @return  Token，值保存在rd_lval中
 int rd_flex()
 {
-    int c;              // 扫描的字符
-    int tokenKind = -1; // Token的值
+    int c;                              // 扫描的字符
+    int tokenKind = RDTokenType::T_ERR; // Initialize to error, ensure it gets set.
+    tokenValue = "";                    // Clear previous token value text for debugging/logging
 
     // 忽略空白符号，主要有空格，TAB键和换行符
-    while ((c = fgetc(rd_filein)) == ' ' || c == '\t' || c == '\n' || c == '\r') {
-
-        // 支持Linux/Windows/Mac系统的行号分析
-        // Windows：\r\n
-        // Mac: \n
-        // Unix(Linux): \r
-        if (c == '\r') {
-            c = fgetc(rd_filein);
-            rd_line_no++;
-            if (c != '\n') {
-                // 不是\n，则回退
-                ungetc(c, rd_filein);
-            }
+    while (true) {
+        c = fgetc(rd_filein);
+        if (c == ' ' || c == '\t') {
+            continue;
         } else if (c == '\n') {
             rd_line_no++;
+            continue;
+        } else if (c == '\r') {
+            rd_line_no++;
+            int next_c = fgetc(rd_filein);
+            if (next_c != '\n') {
+                ungetc(next_c, rd_filein);
+            }
+            continue;
         }
+        break; // Not a whitespace character
     }
 
     // 文件结束符
     if (c == EOF) {
-        // 返回文件结束符
         return RDTokenType::T_EOF;
     }
 
-    // TODO 请自行实现删除源文件中的注释，含单行注释和多行注释等
+    // TODO: Implement comment skipping (single-line // and multi-line /* */)
+    // For now, we assume no comments or they will cause errors.
 
-    // 处理数字
+    rd_lval.integer_num.lineno = rd_line_no; // Set line number for literals/IDs early
+    rd_lval.var_id.lineno = rd_line_no;      // (though specific literal parsing will re-confirm)
+
+    // 处理数字 (Hex, Octal, Decimal)
     if (isdigit(c)) {
+        std::string num_str;
+        num_str += (char) c;
 
-        // 识别无符号数，这里只处理正整数或者0
-        // FIXME 0开头的整数这里也识别成了10进制整数，在C语言中0开头的数字串是8进制数字
-
-        rd_lval.integer_num.lineno = rd_line_no;
-        rd_lval.integer_num.val = c - '0';
-
-        // 最长匹配，直到非数字结束
-        while (isdigit(c = fgetc(rd_filein))) {
-            rd_lval.integer_num.val = rd_lval.integer_num.val * 10 + c - '0';
+        if (c == '0') {
+            int next_c = fgetc(rd_filein);
+            if (next_c == 'x' || next_c == 'X') { // Hexadecimal
+                num_str += (char) next_c;
+                tokenKind = RDTokenType::T_HEX_LITERAL;
+                while (isxdigit(c = fgetc(rd_filein))) {
+                    num_str += (char) c;
+                }
+                ungetc(c, rd_filein);        // Put back non-hex digit
+                if (num_str.length() <= 2) { // e.g., "0x" without digits
+                    tokenKind = RDTokenType::T_ERR;
+                    fprintf(stderr,
+                            "Line(%lld): Malformed hexadecimal literal %s\n",
+                            (long long) rd_line_no,
+                            num_str.c_str());
+                } else {
+                    rd_lval.integer_num.val = static_cast<uint32_t>(std::stoul(num_str.substr(2), nullptr, 16));
+                }
+            } else if (next_c >= '0' && next_c <= '7') { // Octal (must have at least one octal digit after 0)
+                ungetc(next_c, rd_filein);               // Put back the first octal digit to be read by the loop
+                tokenKind = RDTokenType::T_OCT_LITERAL;
+                // num_str already contains '0'
+                while (true) {
+                    c = fgetc(rd_filein);
+                    if (c >= '0' && c <= '7') {
+                        num_str += (char) c;
+                    } else {
+                        ungetc(c, rd_filein); // Put back non-octal digit
+                        break;
+                    }
+                }
+                // num_str will be like "0", "01", "012" etc.
+                // stoul with base 8 handles this. If num_str is just "0", it's 0.
+                rd_lval.integer_num.val = static_cast<uint32_t>(std::stoul(num_str, nullptr, 8));
+            } else {                       // Decimal '0'
+                ungetc(next_c, rd_filein); // Put back whatever char it was
+                tokenKind = RDTokenType::T_DEC_LITERAL;
+                rd_lval.integer_num.val = 0;
+                // num_str is just "0"
+            }
+        } else { // Decimal (starts with 1-9)
+            tokenKind = RDTokenType::T_DEC_LITERAL;
+            while (isdigit(c = fgetc(rd_filein))) {
+                num_str += (char) c;
+            }
+            ungetc(c, rd_filein); // Put back non-digit
+            rd_lval.integer_num.val = static_cast<uint32_t>(std::stoul(num_str, nullptr, 10));
         }
-
-        // 存储数字的token值
-        tokenValue = std::to_string(rd_lval.integer_num.val);
-
-        // 多读的字符回退
-        ungetc(c, rd_filein);
-
-        tokenKind = RDTokenType::T_DIGIT;
+        tokenValue = num_str; // Store the original string for debugging
     } else if (c == '(') {
-        // 识别字符(
         tokenKind = RDTokenType::T_L_PAREN;
-        // 存储字符(
         tokenValue = "(";
     } else if (c == ')') {
-        // 识别字符)
         tokenKind = RDTokenType::T_R_PAREN;
-        // 存储字符)
         tokenValue = ")";
     } else if (c == '{') {
-        // 识别字符{
         tokenKind = RDTokenType::T_L_BRACE;
-        // 存储字符{
         tokenValue = "{";
     } else if (c == '}') {
-        // 识别字符}
         tokenKind = RDTokenType::T_R_BRACE;
-        // 存储字符}
         tokenValue = "}";
     } else if (c == ';') {
-        // 识别字符;
         tokenKind = RDTokenType::T_SEMICOLON;
-        // 存储字符;
         tokenValue = ";";
     } else if (c == '+') {
-        // 识别字符+
         tokenKind = RDTokenType::T_ADD;
-		// 存储字符+
         tokenValue = "+";
     } else if (c == '-') {
-        // 识别字符-
         tokenKind = RDTokenType::T_SUB;
-		// 存储字符-
         tokenValue = "-";
+    } else if (c == '*') {
+        tokenKind = RDTokenType::T_MUL;
+        tokenValue = "*";
+    } else if (c == '/') {
+        tokenKind = RDTokenType::T_DIV;
+        tokenValue = "/";
+    } else if (c == '%') {
+        tokenKind = RDTokenType::T_MOD;
+        tokenValue = "%";
     } else if (c == '=') {
-        // 识别字符=
         tokenKind = RDTokenType::T_ASSIGN;
-    }  else if (c == ',') {
-        // 识别字符;
+        tokenValue = "=";
+    } else if (c == ',') {
         tokenKind = RDTokenType::T_COMMA;
-		// 存储字符,
         tokenValue = ",";
-    } else if (isLetterUnderLine(c)) {
-        // 识别标识符，包含关键字/保留字或自定义标识符
-
-        // 最长匹配标识符
-        std::string name;
-
+    } else if (isLetterUnderLine(c)) { // Assuming isLetterUnderLine and isLetterDigitalUnderLine are defined elsewhere
+        std::string name_str;
         do {
-            // 记录字符
-            name.push_back(c);
+            name_str += (char) c;
             c = fgetc(rd_filein);
         } while (isLetterDigitalUnderLine(c));
-
-        // 存储标识符
-        tokenValue = name;
-
-        // 多读的字符恢复，下次可继续读到该字符
         ungetc(c, rd_filein);
 
-        // 检查是否是关键字，若是则返回对应的Token，否则返回T_ID
-        tokenKind = getKeywordToken(name);
+        tokenValue = name_str;
+        tokenKind = getKeywordToken(name_str);
+
         if (tokenKind == RDTokenType::T_ID) {
-            // 自定义标识符
-
-            // 设置ID的值
-            rd_lval.var_id.id = strdup(name.c_str());
-
-            // 设置行号
-            rd_lval.var_id.lineno = rd_line_no;
-        } else if (tokenKind == RDTokenType::T_INT) {
-            // int关键字
-
-            // 设置类型与行号
-            rd_lval.type.type = BasicType::TYPE_INT;
+            rd_lval.var_id.id = strdup(name_str.c_str());
+            // rd_lval.var_id.lineno = rd_line_no; // Already set at the beginning of the function for all potential
+            // tokens
+        } else if (tokenKind == RDTokenType::T_INT || tokenKind == RDTokenType::T_RETURN) {
+            // For keywords, rd_lval might not be used by parser, or could store type info if needed
+            // e.g., if T_INT needed to pass type info via rd_lval.type
             rd_lval.type.lineno = rd_line_no;
+            if (tokenKind == RDTokenType::T_INT)
+                rd_lval.type.type = BasicType::TYPE_INT;
+            // else for T_RETURN, rd_lval.type might not be relevant or could be set to TYPE_NONE
         }
     } else {
-        printf("Line(%lld): Invalid char %s\n", (long long) rd_line_no, tokenValue.c_str());
+        fprintf(stderr, "Line(%lld): Invalid character '%c'\n", (long long) rd_line_no, (char) c);
         tokenKind = RDTokenType::T_ERR;
     }
-
-    // Token的类别
     return tokenKind;
 }

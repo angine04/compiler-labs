@@ -34,7 +34,10 @@ static int errno_num = 0;
 static RDTokenType lookaheadTag = RDTokenType::T_EMPTY;
 
 static ast_node * Block();
-static ast_node * expr();
+static ast_node * expr(); // Ensure expr is forward declared
+static ast_node * Expression();
+static ast_node * Term();
+static ast_node * Factor();
 
 ///
 /// @brief 继续检查LookAhead指向的记号是否是T，用于符号的FIRST集合或Follow集合判断
@@ -177,130 +180,11 @@ static ast_node * idTail(var_id_attr & id)
 }
 
 ///
-/// @brief 一元表达式文法识别，其文法为
-/// unaryExp: primaryExp | T_ID T_L_PAREN realParamList? T_R_PAREN
-/// primaryExp: T_DIGIT | T_L_PAREN expr T_R_PAREN | lVal
-/// lVal: T_ID
-/// 因primaryExp的FIRST集合包含T_ID，因此该文法产生式不是LL(1)的，需要进行改造
-/// 改造后的文法为：
-/// unaryExp: T_DIGIT | T_L_PAREN expr T_R_PAREN | T_ID idTail
-/// idTail: T_L_PAREN realParamList? T_R_PAREN | ε
-/// 其中idTail表示标识符ID后可以是括号，代表函数调用；
-/// 可以是中括号，代表数组（暂不支持）；
-/// 可以是空串，代表简单变量。
-/// @return ast_node*
-///
-static ast_node * unaryExp()
-{
-    ast_node * node = nullptr;
-
-    if (F(T_DIGIT)) {
-
-        // 无符号整数，primaryExp: T_DIGIT
-
-        node = ast_node::New(rd_lval.integer_num);
-
-        // 跳过当前记号，指向下一个记号
-        advance();
-
-    } else if (match(T_L_PAREN)) {
-
-        // 括号表达式，primaryExp: T_L_PAREN expr T_R_PAREN
-
-        // 括号内表达式识别
-        node = expr();
-
-        if (!match(T_R_PAREN)) {
-            semerror("缺少右括号");
-        }
-    } else if (F(T_ID)) {
-
-        // ID开头的表达式，可以是函数调用，也可以是数组(目前不支持)，或者简单变量，primaryExp: T_ID idTail
-
-        var_id_attr & id = rd_lval.var_id;
-
-        // 跳过当前记号，指向下一个记号
-        advance();
-
-        // 识别ID尾部符号
-        node = idTail(id);
-    }
-
-    return node;
-}
-
-///
-/// @brief 加减运算符, 其文法为addOp : T_ADD | T_SUB;
-/// @return ast_operator_type AST中节点的运算符
-///
-ast_operator_type addOp()
-{
-    ast_operator_type type = ast_operator_type::AST_OP_MAX;
-
-    if (F(T_ADD)) {
-
-        type = ast_operator_type::AST_OP_ADD;
-
-        // 跳过当前的记号，指向下一个记号
-        advance();
-    } else if (F(T_SUB)) {
-
-        type = ast_operator_type::AST_OP_SUB;
-
-        // 跳过当前的记号，指向下一个记号
-        advance();
-    }
-
-    return type;
-}
-
-///
-/// @brief 加减表达式，文法 addExp : unaryExp (addOp unaryExp)*
-/// 其中的*表示闭包，闭包的就是循环
-///
-/// @return ast_node*
-///
-static ast_node * addExp()
-{
-    // 识别第一个unaryExp
-    ast_node * left_node = unaryExp();
-    if (!left_node) {
-        // 非法的一元表达式
-        return nullptr;
-    }
-
-    // 识别闭包(addOp unaryExp)*，循环
-    // 循环退出条件，1) 不是二元加减运算符， 2) 语法错误
-    for (;;) {
-
-        // 获取加减运算符
-        ast_operator_type op = addOp();
-        if (ast_operator_type::AST_OP_MAX == op) {
-
-            // 不是加减运算符则正常结束
-            break;
-        }
-
-        // 获取右侧表达式
-        ast_node * right_node = unaryExp();
-        if (!right_node) {
-
-            // 二元加减运算没有合法的右侧表达式
-            break;
-        }
-
-        // 创建二元运算符节点
-        left_node = create_contain_node(op, left_node, right_node);
-    }
-
-    return left_node;
-}
-
 /// @brief 表达式文法 expr : addExp, 表达式目前只支持加法与减法运算
 /// @return AST的节点
 static ast_node * expr()
 {
-    return addExp();
+    return Expression();
 }
 
 /// @brief returnStatement -> T_RETURN expr T_SEMICOLON
@@ -387,33 +271,17 @@ static ast_node * statement()
 {
     ast_node * node = nullptr;
     if (F(T_RETURN)) {
-
-        // Return语句，识别产生式statement: returnStatement
         node = returnStatement();
     } else if (F(T_L_BRACE)) {
-
-        // 语句块，识别产生式statement: block
         node = Block();
     } else if (F(T_SEMICOLON)) {
-
-        // 空语句，识别产生式statement: T_SEMICOLON
         advance();
-    } else if (F(T_ID) _(T_L_PAREN) _(T_DIGIT)) {
-
-        // 赋值语句，statement -> assignExprStmt T_SEMICOLON
-
-        // assignExprStmt的FIRST集合为{T_ID, T_L_PAREN, T_DIGIT}
-
-        // 赋值语句以T_ID开头，并且左值要具有左值属性
-        // 表达式语句可以以T_ID开头，也可以左小括号T_L_PAREN，甚至一元运算符等开头
-        // 目前文法下表达式语句在不支持一元运算符的情况下只能以T_ID或T_L_PAREN开头
+    } else if (F(T_ID) _(T_L_PAREN) _(T_DEC_LITERAL) _(T_HEX_LITERAL) _(T_OCT_LITERAL) _(T_SUB)) { // Updated condition
         node = assignExprStmt();
-
         if (!match(T_SEMICOLON)) {
             semerror("语句后缺少分号");
         }
     }
-
     return node;
 }
 
@@ -637,44 +505,40 @@ static ast_node * compileUnit()
     ast_node * cu_node = create_contain_node(ast_operator_type::AST_OP_COMPILE_UNIT);
 
     for (;;) {
-
         // match匹配并LookAhead往前挪动
         if (F(T_INT)) {
-
             type_attr type = rd_lval.type;
-
             // 跳过当前的记号，指向下一个记号
             advance();
-
             // 检测是否是标识符
             if (F(T_ID)) {
-
                 // 获取标识符的值和定位信息
                 var_id_attr id = rd_lval.var_id;
-
                 // 跳过当前的记号，指向下一个记号
                 advance();
-
                 // 函数定义的开头为int
                 ast_node * node = idtail(type, id);
-
                 // 加入到父节点中，node为空时insert_son_node内部进行了忽略
                 (void) cu_node->insert_son_node(node);
             } else {
-                semerror("类型后要求的记号为标识符");
-                // 这里忽略继续检查下一个记号，为便于一次可检查出多个错误
-                // 当然可以直接退出循环，一旦有错就不再检查语法错误。
+                semerror("CompileUnit: Expected T_ID after T_INT, got %d (%s)", lookaheadTag, tokenValue.c_str());
+                break;
             }
-
         } else if (F(T_EOF)) {
             // 文件解析完毕
             break;
         } else {
-            // 这里发现错误
+            // If not T_INT (start of varDecl/funcDef) and not T_EOF, then it's an error at this level.
+            if (lookaheadTag != RDTokenType::T_EMPTY &&
+                lookaheadTag !=
+                    RDTokenType::T_ERR) { // Avoid erroring on already reported lexer error or initial empty state
+                semerror("CompileUnit: Expected T_INT (for declaration/definition) or T_EOF, got token %d (%s)",
+                         lookaheadTag,
+                         tokenValue.c_str());
+            }
             break;
         }
     }
-
     return cu_node;
 }
 
@@ -684,18 +548,129 @@ static ast_node * compileUnit()
 ///
 ast_node * rd_parse()
 {
-    // 没有错误信息
-    errno_num = 0;
+    errno_num = 0; // Reset global error count
+    advance();     // Get the first token
 
-    // lookahead指向第一个Token
-    advance();
+    ast_node * astRoot = compileUnit(); // Parse the compilation unit
 
-    ast_node * astRoot = compileUnit();
-
-    // 如果有错误信息，则返回-1，否则返回0
-    if (errno_num != 0) {
+    if (errno_num > 0) { // Check if any error occurred during parsing
+        // If astRoot was created but an error occurred, it might be partially formed.
+        // Depending on AST node ownership, cleanup might be needed here or handled by caller.
+        // For now, just return nullptr as per original logic for error indication.
         return nullptr;
     }
-
     return astRoot;
+}
+
+///
+/// @brief 重命名并修改自旧的unaryExp()
+/// @return ast_node*
+///
+static ast_node * Factor()
+{
+    ast_node * node = nullptr;
+
+    if (lookaheadTag == RDTokenType::T_DEC_LITERAL || lookaheadTag == RDTokenType::T_HEX_LITERAL ||
+        lookaheadTag == RDTokenType::T_OCT_LITERAL) {
+        // integer literal
+        // rd_lval.integer_num is already populated by rd_flex()
+        node = ast_node::New(rd_lval.integer_num);
+        advance(); // consume the literal token
+    } else if (lookaheadTag == RDTokenType::T_ID) {
+        // variable or function call
+        var_id_attr id_attr_val = rd_lval.var_id; // Copy before advance, as rd_lval is global
+        advance();                                // consume T_ID
+        node = idTail(id_attr_val);               // idTail handles simple var vs func call and consumes its own tokens
+    } else if (lookaheadTag == RDTokenType::T_L_PAREN) {
+        advance(); // consume '('
+        node = Expression();
+        if (!match(RDTokenType::T_R_PAREN)) {
+            semerror("Factor: Missing )");
+            // Potentially return error node or handle error recovery
+            if (node) {
+                ast_node::Delete(node);
+                node = nullptr;
+            }
+        }
+    } else if (lookaheadTag == RDTokenType::T_SUB) { // Unary minus
+        advance();                                   // consume '-'
+        ast_node * operand = Factor();               // Parse the operand
+        if (operand) {
+            node = create_contain_node(ast_operator_type::AST_OP_NEG, operand);
+        } else {
+            semerror("Factor: Missing operand for unary minus");
+        }
+    } else {
+        semerror("Factor: Unexpected token %d (%s)", lookaheadTag, tokenValue.c_str());
+    }
+    return node;
+}
+
+///
+/// @brief 重命名并修改自旧的expr()
+/// @return ast_node*
+///
+static ast_node * Expression()
+{
+    ast_node * node = Term(); // Get the first term
+
+    while (lookaheadTag == RDTokenType::T_ADD || lookaheadTag == RDTokenType::T_SUB) {
+        RDTokenType op_token = lookaheadTag;
+        advance(); // consume operator
+        ast_node * right_operand = Term();
+
+        if (!right_operand) {
+            semerror("Expression: Missing right operand for operator");
+            if (node) {
+                ast_node::Delete(node);
+                node = nullptr;
+            }
+            break;
+        }
+
+        ast_operator_type ast_op;
+        if (op_token == RDTokenType::T_ADD)
+            ast_op = ast_operator_type::AST_OP_ADD;
+        else
+            ast_op = ast_operator_type::AST_OP_SUB;
+
+        node = create_contain_node(ast_op, node, right_operand);
+    }
+    return node;
+}
+
+///
+/// @brief 重命名并修改自旧的Term()
+/// @return ast_node*
+///
+static ast_node * Term()
+{
+    ast_node * node = Factor(); // Get the first factor
+
+    while (lookaheadTag == RDTokenType::T_MUL || lookaheadTag == RDTokenType::T_DIV ||
+           lookaheadTag == RDTokenType::T_MOD) {
+        RDTokenType op_token = lookaheadTag;
+        advance(); // consume operator
+        ast_node * right_operand = Factor();
+
+        if (!right_operand) {
+            semerror("Term: Missing right operand for operator");
+            if (node) {
+                ast_node::Delete(node);
+                node = nullptr;
+            }
+            break;
+        }
+
+        ast_operator_type ast_op;
+        if (op_token == RDTokenType::T_MUL)
+            ast_op = ast_operator_type::AST_OP_MUL;
+        else if (op_token == RDTokenType::T_DIV)
+            ast_op = ast_operator_type::AST_OP_DIV;
+        else
+            ast_op = ast_operator_type::AST_OP_MOD; // T_MOD
+
+        node = create_contain_node(ast_op, node, right_operand);
+    }
+    return node;
 }
