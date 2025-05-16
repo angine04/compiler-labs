@@ -758,7 +758,7 @@ bool IRGenerator::ir_lt(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::New(32); // Assuming i32 for boolean result (0 or 1)
+    Type * resultType = IntegerType::getTypeInt();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_LT_I,
                                                    left_son_visited->val,
@@ -789,7 +789,7 @@ bool IRGenerator::ir_le(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::New(32);
+    Type * resultType = IntegerType::getTypeInt();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_LE_I,
                                                    left_son_visited->val,
@@ -820,7 +820,7 @@ bool IRGenerator::ir_gt(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::New(32);
+    Type * resultType = IntegerType::getTypeInt();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_GT_I,
                                                    left_son_visited->val,
@@ -851,7 +851,7 @@ bool IRGenerator::ir_ge(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::New(32);
+    Type * resultType = IntegerType::getTypeInt();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_GE_I,
                                                    left_son_visited->val,
@@ -882,7 +882,7 @@ bool IRGenerator::ir_eq(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::New(32);
+    Type * resultType = IntegerType::getTypeInt();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_EQ_I,
                                                    left_son_visited->val,
@@ -913,7 +913,7 @@ bool IRGenerator::ir_ne(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::New(32);
+    Type * resultType = IntegerType::getTypeInt();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_NE_I,
                                                    left_son_visited->val,
