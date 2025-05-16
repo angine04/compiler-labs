@@ -734,28 +734,87 @@ bool IRGenerator::ir_mod(ast_node * node)
 /// @return 翻译是否成功，true：成功，false：失败
 bool IRGenerator::ir_neg(ast_node * node)
 {
-    ast_node * operand_node = node->sons[0];
+    assert(node->node_type == ast_operator_type::AST_OP_NEG && "Node is not neg"); // Restored AST check
+    ast_node * operand_node = node->sons[0];                                       // Restored AST check
 
-    ast_node * operand = ir_visit_ast_node(operand_node);
-    if (!operand)
+    ast_node * visited_operand_node = ir_visit_ast_node(operand_node); // Restored AST check
+    if (!visited_operand_node) {
         return false;
-
-    Value * zero_val = module->newConstInt(0);
-    if (!zero_val) {
-        // 如果模块无法提供常量0，这是个问题
+    }
+    node->blockInsts.addInst(
+        visited_operand_node->blockInsts); // Assumed addInst(InterCode) exists or will be fixed if error persists
+    Value * original_operand_val = visited_operand_node->val;
+    if (!original_operand_val) {
+        printf("[ERROR] ir_neg: Operand for unary minus did not produce a value. Line: %ld\n", node->line_no);
+        fflush(stdout);
         return false;
     }
 
-    BinaryInstruction * negInst = new BinaryInstruction(module->getCurrentFunction(),
-                                                        IRInstOperator::IRINST_OP_SUB_I, // 使用 SUB 实现 0 - operand
-                                                        zero_val,
-                                                        operand->val,
-                                                        IntegerType::getTypeInt());
+    Type * operand_type = original_operand_val->getType();
+    Value * operand_for_sub = nullptr;
+    Function * currentFunc = module->getCurrentFunction();
+    ConstInt * const_zero_i32 = module->newConstInt(0);
 
-    node->blockInsts.addInst(operand->blockInsts);
+    if (!const_zero_i32) {
+        printf("[ERROR] ir_neg: Failed to create i32 zero constant. Line: %ld\n", node->line_no);
+        fflush(stdout);
+        return false;
+    }
+
+    if (operand_type->isInt1Byte()) {
+        printf("[DEBUG] ir_neg: Operand is i1 (%s). Converting to i32. Line: %ld\n",
+               original_operand_val->getIRName().c_str(),
+               node->line_no);
+        fflush(stdout);
+
+        LocalVariable * temp_i32_storage = static_cast<LocalVariable *>(
+            currentFunc->newLocalVarValue(IntegerType::getTypeInt(), "neg_i1_to_i32_val")); // Restored naming
+        if (!temp_i32_storage) {
+            printf("[ERROR] ir_neg: Failed to create local variable for i1->i32 conversion. Line: %ld\n",
+                   node->line_no);
+            fflush(stdout);
+            return false;
+        }
+
+        LabelInstruction * set_one_label = new LabelInstruction(currentFunc);
+        LabelInstruction * set_zero_label = new LabelInstruction(currentFunc);
+        LabelInstruction * continue_label = new LabelInstruction(currentFunc);
+
+        node->blockInsts.addInst(
+            new BranchInstruction(currentFunc, original_operand_val, set_one_label, set_zero_label));
+
+        node->blockInsts.addInst(set_one_label);
+        node->blockInsts.addInst(new MoveInstruction(currentFunc, temp_i32_storage, module->newConstInt(1)));
+        node->blockInsts.addInst(new GotoInstruction(currentFunc, continue_label));
+
+        node->blockInsts.addInst(set_zero_label);
+        node->blockInsts.addInst(new MoveInstruction(currentFunc, temp_i32_storage, module->newConstInt(0)));
+        node->blockInsts.addInst(new GotoInstruction(currentFunc, continue_label));
+
+        node->blockInsts.addInst(continue_label);
+        operand_for_sub = temp_i32_storage;
+
+    } else if (operand_type->isInt32Type()) {
+        operand_for_sub = original_operand_val;
+    } else {
+        printf("[ERROR] ir_neg: Operand for unary minus is not i1 or i32 (type: %s). Line: %ld\n",
+               operand_type->toString().c_str(),
+               node->line_no);
+        fflush(stdout);
+        return false;
+    }
+
+    Instruction * negInst = new BinaryInstruction(currentFunc,
+                                                  IRInstOperator::IRINST_OP_SUB_I,
+                                                  const_zero_i32,
+                                                  operand_for_sub,
+                                                  IntegerType::getTypeInt());
+
     node->blockInsts.addInst(negInst);
     node->val = negInst;
 
+    printf("[DEBUG] ir_neg: Completed. Result value is %s. Line: %ld\n", node->val->getIRName().c_str(), node->line_no);
+    fflush(stdout);
     return true;
 }
 
@@ -1449,31 +1508,84 @@ bool IRGenerator::ir_continue_statement(ast_node * node)
 // Implementation for ir_logical_not
 bool IRGenerator::ir_logical_not(ast_node * node)
 {
-    assert(node != nullptr && node->node_type == ast_operator_type::AST_OP_LOGICAL_NOT);
-    printf("[DEBUG] ir_logical_not: Visited directly (node type %d, line %ld approx). This operator primarily "
-           "generates branches via generate_branch_for_condition.\n",
-           (int) node->node_type,
-           node->line_no);
-    fflush(stdout);
+    assert(node->node_type == ast_operator_type::AST_OP_LOGICAL_NOT && "Node is not logical_not"); // Restored AST check
+    ast_node * operand_node = node->sons[0];                                                       // Restored AST check
 
-    assert(node->sons.size() == 1 && "Logical NOT should have one operand");
-    ast_node * operand_node = node->sons[0];
+    ast_node * visited_operand_node = ir_visit_ast_node(operand_node); // Restored AST check
+    if (!visited_operand_node) {
+        return false;
+    }
+    node->blockInsts.addInst(visited_operand_node->blockInsts); // Assumed addInst(InterCode) exists
+    Value * original_operand_val = visited_operand_node->val;
 
-    // We must visit the operand to ensure its instructions (if any) are generated and collected.
-    ast_node * operand_visited = ir_visit_ast_node(operand_node);
-    if (!operand_visited) {
-        printf("[ERROR] ir_logical_not: Visiting operand node failed.\n");
+    if (!original_operand_val) {
+        printf("[ERROR] ir_logical_not: Operand for logical NOT did not produce a value. Line: %ld\n", node->line_no);
         fflush(stdout);
         return false;
     }
-    node->blockInsts.addInst(operand_visited->blockInsts);
 
-    // Logical NOT, when not producing a direct branch, doesn't produce a Value* in our current design.
-    // Its truthiness is handled by generate_branch_for_condition by flipping targets.
-    // If it were to produce a value, it would be an i1, likely from generate_branch_for_condition logic adapted to
-    // produce a value.
-    node->val = nullptr;
-    printf("[DEBUG] ir_logical_not: Exiting. node->val set to nullptr.\n");
+    Type * operand_type = original_operand_val->getType();
+    Function * currentFunc = module->getCurrentFunction();
+    Value * operand_val_i1 = nullptr;
+
+    printf("[DEBUG] ir_logical_not: Processing operand %s of type %s. Line: %ld\n",
+           original_operand_val->getIRName().c_str(),
+           operand_type->toString().c_str(),
+           node->line_no);
+    fflush(stdout);
+
+    if (operand_type->isInt32Type()) {
+        printf("[DEBUG] ir_logical_not: Operand is i32. Converting to i1 (val != 0). Line: %ld\n", node->line_no);
+        fflush(stdout);
+        ConstInt * const_zero_i32 = module->newConstInt(0);
+        if (!const_zero_i32) {
+            printf("[ERROR] ir_logical_not: Failed to create i32 zero for comparison. Line: %ld\n", node->line_no);
+            fflush(stdout);
+            return false;
+        }
+        Instruction * cmp_ne_zero = new BinaryInstruction(currentFunc,
+                                                          IRInstOperator::IRINST_OP_CMP_NE_I,
+                                                          original_operand_val,
+                                                          const_zero_i32,
+                                                          IntegerType::getTypeBool());
+        node->blockInsts.addInst(cmp_ne_zero);
+        operand_val_i1 = cmp_ne_zero;
+
+    } else if (operand_type->isInt1Byte()) {
+        printf("[DEBUG] ir_logical_not: Operand is already i1. Line: %ld\n", node->line_no);
+        fflush(stdout);
+        operand_val_i1 = original_operand_val;
+    } else {
+        printf("[ERROR] ir_logical_not: Operand for logical NOT is not i32 or i1 (type: %s). Line: %ld\n",
+               operand_type->toString().c_str(),
+               node->line_no);
+        fflush(stdout);
+        return false;
+    }
+
+    ConstInt * const_false_i1 = new ConstInt(false);
+    if (!const_false_i1) {
+        printf("[ERROR] ir_logical_not: Failed to create i1 false constant. Line: %ld\n", node->line_no);
+        fflush(stdout);
+        return false;
+    }
+
+    printf("[DEBUG] ir_logical_not: Comparing %s (i1) with const false (i1). Line: %ld\n",
+           operand_val_i1->getIRName().c_str(),
+           node->line_no);
+    fflush(stdout);
+
+    Instruction * final_cmp_eq_false = new BinaryInstruction(currentFunc,
+                                                             IRInstOperator::IRINST_OP_CMP_EQ_I,
+                                                             operand_val_i1,
+                                                             const_false_i1,
+                                                             IntegerType::getTypeBool());
+    node->blockInsts.addInst(final_cmp_eq_false);
+    node->val = final_cmp_eq_false;
+
+    printf("[DEBUG] ir_logical_not: Completed. Result value is %s. Line: %ld\n",
+           node->val->getIRName().c_str(),
+           node->line_no);
     fflush(stdout);
     return true;
 }
