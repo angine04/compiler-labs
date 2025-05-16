@@ -86,6 +86,20 @@ IRGenerator::IRGenerator(ast_node * _root, Module * _module) : root(_root), modu
 
     /* 编译单元 */
     ast2ir_handlers[ast_operator_type::AST_OP_COMPILE_UNIT] = &IRGenerator::ir_compile_unit;
+
+    /* While statement */
+    ast2ir_handlers[ast_operator_type::AST_OP_WHILE] = &IRGenerator::ir_while_statement;
+
+    /* Break statement */
+    ast2ir_handlers[ast_operator_type::AST_OP_BREAK] = &IRGenerator::ir_break_statement;
+
+    /* Continue statement */
+    ast2ir_handlers[ast_operator_type::AST_OP_CONTINUE] = &IRGenerator::ir_continue_statement;
+
+    /* Logical operators (placeholder handlers as they are mainly used in generate_branch_for_condition) */
+    ast2ir_handlers[ast_operator_type::AST_OP_LOGICAL_NOT] = &IRGenerator::ir_logical_not;
+    ast2ir_handlers[ast_operator_type::AST_OP_LOGICAL_AND] = &IRGenerator::ir_logical_and;
+    ast2ir_handlers[ast_operator_type::AST_OP_LOGICAL_OR] = &IRGenerator::ir_logical_or;
 }
 
 /// @brief 遍历抽象语法树产生线性IR，保存到IRCode中
@@ -1136,7 +1150,66 @@ void IRGenerator::generate_branch_for_condition(ast_node * condition_node,
             break;
         }
 
-            // TODO: Add cases for AST_OP_LOGICAL_NOT, AST_OP_LOGICAL_AND, AST_OP_LOGICAL_OR
+        case ast_operator_type::AST_OP_LOGICAL_NOT: {
+            printf("[DEBUG] generate_branch_for_condition: Handling AST_OP_LOGICAL_NOT\n");
+            fflush(stdout);
+            assert(condition_node->sons.size() == 1 && "Logical NOT should have one operand");
+            ast_node * operand_node = condition_node->sons[0];
+            // Recursively call, but swap true and false targets
+            generate_branch_for_condition(operand_node, false_target, true_target, instruction_list);
+            break;
+        }
+
+        case ast_operator_type::AST_OP_LOGICAL_AND: {
+            printf("[DEBUG] generate_branch_for_condition: Handling AST_OP_LOGICAL_AND\n");
+            fflush(stdout);
+            assert(condition_node->sons.size() == 2 && "Logical AND should have two operands");
+            ast_node * expr1_node = condition_node->sons[0];
+            ast_node * expr2_node = condition_node->sons[1];
+
+            LabelInstruction * check_expr2_label = new LabelInstruction(currentFunc);
+            assert(check_expr2_label != nullptr);
+
+            // Evaluate expr1. If false, jump to overall false_target (short-circuit).
+            // If true, jump to check_expr2_label to evaluate expr2.
+            generate_branch_for_condition(expr1_node, check_expr2_label, false_target, instruction_list);
+
+            // Add the label for evaluating expr2
+            instruction_list.addInst(check_expr2_label);
+            printf("[DEBUG] generate_branch_for_condition (AND): Added check_expr2_label %s\n",
+                   check_expr2_label->getIRName().c_str());
+            fflush(stdout);
+
+            // Evaluate expr2. Its truthiness determines the overall result.
+            generate_branch_for_condition(expr2_node, true_target, false_target, instruction_list);
+            break;
+        }
+
+        case ast_operator_type::AST_OP_LOGICAL_OR: {
+            printf("[DEBUG] generate_branch_for_condition: Handling AST_OP_LOGICAL_OR\n");
+            fflush(stdout);
+            assert(condition_node->sons.size() == 2 && "Logical OR should have two operands");
+            ast_node * expr1_node = condition_node->sons[0];
+            ast_node * expr2_node = condition_node->sons[1];
+
+            LabelInstruction * check_expr2_label = new LabelInstruction(currentFunc);
+            assert(check_expr2_label != nullptr);
+
+            // Evaluate expr1. If true, jump to overall true_target (short-circuit).
+            // If false, jump to check_expr2_label to evaluate expr2.
+            generate_branch_for_condition(expr1_node, true_target, check_expr2_label, instruction_list);
+
+            // Add the label for evaluating expr2
+            instruction_list.addInst(check_expr2_label);
+            printf("[DEBUG] generate_branch_for_condition (OR): Added check_expr2_label %s\n",
+                   check_expr2_label->getIRName().c_str());
+            fflush(stdout);
+
+            // Evaluate expr2. Its truthiness determines the overall result.
+            generate_branch_for_condition(expr2_node, true_target, false_target, instruction_list);
+            break;
+        }
+
             // TODO: Add case for direct variable/literal boolean values (int to bool conversion)
 
         default:
@@ -1191,4 +1264,290 @@ void IRGenerator::generate_branch_for_condition(ast_node * condition_node,
             }
             break;
     }
+}
+
+/// @brief 新增：while语句翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_while_statement(ast_node * node)
+{
+    assert(node != nullptr && node->node_type == ast_operator_type::AST_OP_WHILE);
+    assert(node->sons.size() == 2 && "While node should have 2 children: condition and body");
+
+    printf("[DEBUG] ir_while_statement: Entered for node type %d (line %ld approx)\n",
+           (int) node->node_type,
+           node->line_no);
+    fflush(stdout);
+
+    Function * currentFunc = module->getCurrentFunction();
+    assert(currentFunc != nullptr && "ir_while_statement called outside of a function context");
+
+    ast_node * condition_node = node->sons[0];
+    ast_node * body_node = node->sons[1];
+
+    assert(condition_node != nullptr);
+    assert(body_node != nullptr);
+
+    // 1. Create labels
+    LabelInstruction * condition_check_label = new LabelInstruction(currentFunc); // Loop entry / condition check
+    LabelInstruction * body_entry_label = new LabelInstruction(currentFunc);      // Loop body entry
+    LabelInstruction * loop_exit_label = new LabelInstruction(currentFunc);       // Loop exit
+
+    assert(condition_check_label != nullptr);
+    assert(body_entry_label != nullptr);
+    assert(loop_exit_label != nullptr);
+
+    printf("[DEBUG] ir_while_statement: condition_check_label=%s, body_entry_label=%s, loop_exit_label=%s\n",
+           condition_check_label->getIRName().c_str(),
+           body_entry_label->getIRName().c_str(),
+           loop_exit_label->getIRName().c_str());
+    fflush(stdout);
+
+    // Push loop labels for break/continue
+    loop_label_stack.push({condition_check_label, loop_exit_label});
+    printf("[DEBUG] ir_while_statement: Pushed to loop_label_stack: continue_target=%s, break_target=%s. Stack size: "
+           "%zu\n",
+           condition_check_label->getIRName().c_str(),
+           loop_exit_label->getIRName().c_str(),
+           loop_label_stack.size());
+    fflush(stdout);
+
+    // 2. Add condition_check_label to instruction stream
+    node->blockInsts.addInst(condition_check_label);
+    printf("[DEBUG] ir_while_statement: Added condition_check_label %s to blockInsts\n",
+           condition_check_label->getIRName().c_str());
+    fflush(stdout);
+
+    // 3. Generate branch based on condition
+    printf("[DEBUG] ir_while_statement: Calling generate_branch_for_condition for condition_node %p\n",
+           (void *) condition_node);
+    fflush(stdout);
+    generate_branch_for_condition(condition_node, body_entry_label, loop_exit_label, node->blockInsts);
+    printf("[DEBUG] ir_while_statement: Returned from generate_branch_for_condition\n");
+    fflush(stdout);
+
+    // 4. Add body_entry_label
+    node->blockInsts.addInst(body_entry_label);
+    printf("[DEBUG] ir_while_statement: Added body_entry_label %s to blockInsts\n",
+           body_entry_label->getIRName().c_str());
+    fflush(stdout);
+
+    // 5. Translate loop body
+    printf("[DEBUG] ir_while_statement: Visiting body_node %p\n", (void *) body_node);
+    fflush(stdout);
+    ast_node * body_visited = ir_visit_ast_node(body_node);
+    if (!body_visited) {
+        printf("[ERROR] ir_while_statement: Visiting body_node failed.\n");
+        fflush(stdout);
+        loop_label_stack.pop(); // Pop labels on error exit
+        printf("[DEBUG] ir_while_statement: Popped from loop_label_stack on error. Stack size: %zu\n",
+               loop_label_stack.size());
+        // module->getLoopContextManager().pop(); // Clean up loop context
+        return false; // Propagate error
+    }
+    node->blockInsts.addInst(body_visited->blockInsts); // Add instructions from the body
+    printf("[DEBUG] ir_while_statement: Returned from visiting body_node\n");
+    fflush(stdout);
+
+    // 6. Add unconditional jump back to condition_check_label
+    GotoInstruction * goto_condition_check = new GotoInstruction(currentFunc, condition_check_label);
+    node->blockInsts.addInst(goto_condition_check);
+    printf("[DEBUG] ir_while_statement: Added goto_condition_check to %s\n",
+           condition_check_label->getIRName().c_str());
+    fflush(stdout);
+
+    // 7. Add loop_exit_label
+    node->blockInsts.addInst(loop_exit_label);
+    printf("[DEBUG] ir_while_statement: Added loop_exit_label %s to blockInsts\n",
+           loop_exit_label->getIRName().c_str());
+    fflush(stdout);
+
+    // TODO: Pop loop labels for break/continue handling
+    // module->getLoopContextManager().pop();
+    loop_label_stack.pop();
+    printf("[DEBUG] ir_while_statement: Popped from loop_label_stack on normal exit. Stack size: %zu\n",
+           loop_label_stack.size());
+    fflush(stdout);
+
+    node->val = nullptr; // While statement itself doesn't have a value
+    printf("[DEBUG] ir_while_statement: Exiting successfully.\n");
+    fflush(stdout);
+    return true;
+}
+
+/// @brief 新增：break语句翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_break_statement(ast_node * node)
+{
+    assert(node != nullptr && node->node_type == ast_operator_type::AST_OP_BREAK);
+    printf("[DEBUG] ir_break_statement: Entered for node type %d (line %ld approx)\n",
+           (int) node->node_type,
+           node->line_no);
+    fflush(stdout);
+
+    Function * currentFunc = module->getCurrentFunction();
+    assert(currentFunc != nullptr && "ir_break_statement called outside of a function context");
+
+    if (loop_label_stack.empty()) {
+        // Semantic error: break statement not within a loop.
+        // You might want to use your minic_log for this kind of error.
+        fprintf(stderr, "Error line %ld: break statement not within a loop.\n", node->line_no);
+        // Alternatively, set an error flag in the module or throw an exception.
+        return false; // Indicate failure
+    }
+
+    LabelInstruction * break_target = loop_label_stack.top().second;
+    assert(break_target != nullptr && "Break target label is null in loop_label_stack");
+
+    printf("[DEBUG] ir_break_statement: Generating goto to break_target label %s\n", break_target->getIRName().c_str());
+    fflush(stdout);
+
+    node->blockInsts.addInst(new GotoInstruction(currentFunc, break_target));
+    node->val = nullptr; // break statement doesn't have a value
+
+    printf("[DEBUG] ir_break_statement: Exiting successfully.\n");
+    fflush(stdout);
+    return true;
+}
+
+/// @brief 新增：continue语句翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_continue_statement(ast_node * node)
+{
+    assert(node != nullptr && node->node_type == ast_operator_type::AST_OP_CONTINUE);
+    printf("[DEBUG] ir_continue_statement: Entered for node type %d (line %ld approx)\n",
+           (int) node->node_type,
+           node->line_no);
+    fflush(stdout);
+
+    Function * currentFunc = module->getCurrentFunction();
+    assert(currentFunc != nullptr && "ir_continue_statement called outside of a function context");
+
+    if (loop_label_stack.empty()) {
+        // Semantic error: continue statement not within a loop.
+        fprintf(stderr, "Error line %ld: continue statement not within a loop.\n", node->line_no);
+        return false; // Indicate failure
+    }
+
+    LabelInstruction * continue_target = loop_label_stack.top().first;
+    assert(continue_target != nullptr && "Continue target label is null in loop_label_stack");
+
+    printf("[DEBUG] ir_continue_statement: Generating goto to continue_target label %s\n",
+           continue_target->getIRName().c_str());
+    fflush(stdout);
+
+    node->blockInsts.addInst(new GotoInstruction(currentFunc, continue_target));
+    node->val = nullptr; // continue statement doesn't have a value
+
+    printf("[DEBUG] ir_continue_statement: Exiting successfully.\n");
+    fflush(stdout);
+    return true;
+}
+
+// Implementation for ir_logical_not
+bool IRGenerator::ir_logical_not(ast_node * node)
+{
+    assert(node != nullptr && node->node_type == ast_operator_type::AST_OP_LOGICAL_NOT);
+    printf("[DEBUG] ir_logical_not: Visited directly (node type %d, line %ld approx). This operator primarily "
+           "generates branches via generate_branch_for_condition.\n",
+           (int) node->node_type,
+           node->line_no);
+    fflush(stdout);
+
+    assert(node->sons.size() == 1 && "Logical NOT should have one operand");
+    ast_node * operand_node = node->sons[0];
+
+    // We must visit the operand to ensure its instructions (if any) are generated and collected.
+    ast_node * operand_visited = ir_visit_ast_node(operand_node);
+    if (!operand_visited) {
+        printf("[ERROR] ir_logical_not: Visiting operand node failed.\n");
+        fflush(stdout);
+        return false;
+    }
+    node->blockInsts.addInst(operand_visited->blockInsts);
+
+    // Logical NOT, when not producing a direct branch, doesn't produce a Value* in our current design.
+    // Its truthiness is handled by generate_branch_for_condition by flipping targets.
+    // If it were to produce a value, it would be an i1, likely from generate_branch_for_condition logic adapted to
+    // produce a value.
+    node->val = nullptr;
+    printf("[DEBUG] ir_logical_not: Exiting. node->val set to nullptr.\n");
+    fflush(stdout);
+    return true;
+}
+
+// Implementation for ir_logical_and
+bool IRGenerator::ir_logical_and(ast_node * node)
+{
+    assert(node != nullptr && node->node_type == ast_operator_type::AST_OP_LOGICAL_AND);
+    printf("[DEBUG] ir_logical_and: Visited directly (node type %d, line %ld approx). This operator primarily "
+           "generates branches via generate_branch_for_condition.\n",
+           (int) node->node_type,
+           node->line_no);
+    fflush(stdout);
+
+    assert(node->sons.size() == 2 && "Logical AND should have two operands");
+    ast_node * lhs_node = node->sons[0];
+    ast_node * rhs_node = node->sons[1];
+
+    // Visit operands to collect their instructions. Short-circuiting logic for *value production*
+    // would be more complex here and is not implemented as these are primarily for branching.
+    ast_node * lhs_visited = ir_visit_ast_node(lhs_node);
+    if (!lhs_visited) {
+        printf("[ERROR] ir_logical_and: Visiting LHS node failed.\n");
+        fflush(stdout);
+        return false;
+    }
+    node->blockInsts.addInst(lhs_visited->blockInsts);
+
+    ast_node * rhs_visited = ir_visit_ast_node(rhs_node);
+    if (!rhs_visited) {
+        printf("[ERROR] ir_logical_and: Visiting RHS node failed.\n");
+        fflush(stdout);
+        return false;
+    }
+    node->blockInsts.addInst(rhs_visited->blockInsts);
+
+    node->val = nullptr;
+    printf("[DEBUG] ir_logical_and: Exiting. node->val set to nullptr.\n");
+    fflush(stdout);
+    return true;
+}
+
+// Implementation for ir_logical_or
+bool IRGenerator::ir_logical_or(ast_node * node)
+{
+    assert(node != nullptr && node->node_type == ast_operator_type::AST_OP_LOGICAL_OR);
+    printf("[DEBUG] ir_logical_or: Visited directly (node type %d, line %ld approx). This operator primarily generates "
+           "branches via generate_branch_for_condition.\n",
+           (int) node->node_type,
+           node->line_no);
+    fflush(stdout);
+
+    assert(node->sons.size() == 2 && "Logical OR should have two operands");
+    ast_node * lhs_node = node->sons[0];
+    ast_node * rhs_node = node->sons[1];
+
+    ast_node * lhs_visited = ir_visit_ast_node(lhs_node);
+    if (!lhs_visited) {
+        printf("[ERROR] ir_logical_or: Visiting LHS node failed.\n");
+        fflush(stdout);
+        return false;
+    }
+    node->blockInsts.addInst(lhs_visited->blockInsts);
+
+    ast_node * rhs_visited = ir_visit_ast_node(rhs_node);
+    if (!rhs_visited) {
+        printf("[ERROR] ir_logical_or: Visiting RHS node failed.\n");
+        fflush(stdout);
+        return false;
+    }
+    node->blockInsts.addInst(rhs_visited->blockInsts);
+
+    node->val = nullptr;
+    printf("[DEBUG] ir_logical_or: Exiting. node->val set to nullptr.\n");
+    fflush(stdout);
+    return true;
 }

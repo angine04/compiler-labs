@@ -38,6 +38,9 @@
 /* 正规式定义 */
 %%
 
+"//"[^\n]*        { /* Eat up single-line comments */ }
+"/*"([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+"/" { /* Eat up multi-line comments */ }
+
 "("         { return T_L_PAREN; }
 ")"         { return T_R_PAREN; }
 "{"         { return T_L_BRACE; }

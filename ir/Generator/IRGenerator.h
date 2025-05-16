@@ -17,6 +17,8 @@
 #pragma once
 
 #include <unordered_map>
+#include <stack>
+#include <utility>
 
 #include "AST.h"
 #include "Module.h"
@@ -148,6 +150,18 @@ protected:
     // New IR generation function for if statements
     bool ir_if_statement(ast_node * node); // For AST_OP_IF
 
+    // New IR generation function for while statements
+    bool ir_while_statement(ast_node * node); // For AST_OP_WHILE
+
+    // New IR generation functions for break/continue
+    bool ir_break_statement(ast_node * node);    // For AST_OP_BREAK
+    bool ir_continue_statement(ast_node * node); // For AST_OP_CONTINUE
+
+    // New IR generation functions for logical operators (even if primarily handled by generate_branch_for_condition)
+    bool ir_logical_not(ast_node * node); // For AST_OP_LOGICAL_NOT
+    bool ir_logical_and(ast_node * node); // For AST_OP_LOGICAL_AND
+    bool ir_logical_or(ast_node * node);  // For AST_OP_LOGICAL_OR
+
     /// @brief 未知节点类型的节点处理
     /// @param node AST节点
     /// @return 翻译是否成功，true：成功，false：失败
@@ -170,6 +184,9 @@ private:
 
     /// @brief 符号表:模块
     Module * module;
+
+    std::stack<std::pair<LabelInstruction *, LabelInstruction *>>
+        loop_label_stack; // pair: {continue_target, break_target}
 
     void generate_branch_for_condition(ast_node * condition_node,
                                        LabelInstruction * true_target,
