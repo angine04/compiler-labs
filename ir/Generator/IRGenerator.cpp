@@ -33,6 +33,7 @@
 #include "BinaryInstruction.h"
 #include "MoveInstruction.h"
 #include "GotoInstruction.h"
+#include "IntegerType.h"
 
 /// @brief 构造函数
 /// @param _root AST的根
@@ -44,13 +45,21 @@ IRGenerator::IRGenerator(ast_node * _root, Module * _module) : root(_root), modu
     ast2ir_handlers[ast_operator_type::AST_OP_LEAF_VAR_ID] = &IRGenerator::ir_leaf_node_var_id;
     ast2ir_handlers[ast_operator_type::AST_OP_LEAF_TYPE] = &IRGenerator::ir_leaf_node_type;
 
-    /* 表达式运算， 加减 */
+    /* 表达式运算， 加减乘除模，取负 */
     ast2ir_handlers[ast_operator_type::AST_OP_SUB] = &IRGenerator::ir_sub;
     ast2ir_handlers[ast_operator_type::AST_OP_ADD] = &IRGenerator::ir_add;
     ast2ir_handlers[ast_operator_type::AST_OP_MUL] = &IRGenerator::ir_mul;
     ast2ir_handlers[ast_operator_type::AST_OP_DIV] = &IRGenerator::ir_div;
     ast2ir_handlers[ast_operator_type::AST_OP_MOD] = &IRGenerator::ir_mod;
     ast2ir_handlers[ast_operator_type::AST_OP_NEG] = &IRGenerator::ir_neg;
+
+    /* New: Relational operators */
+    ast2ir_handlers[ast_operator_type::AST_OP_LT] = &IRGenerator::ir_lt;
+    ast2ir_handlers[ast_operator_type::AST_OP_LE] = &IRGenerator::ir_le;
+    ast2ir_handlers[ast_operator_type::AST_OP_GT] = &IRGenerator::ir_gt;
+    ast2ir_handlers[ast_operator_type::AST_OP_GE] = &IRGenerator::ir_ge;
+    ast2ir_handlers[ast_operator_type::AST_OP_EQ] = &IRGenerator::ir_eq;
+    ast2ir_handlers[ast_operator_type::AST_OP_NE] = &IRGenerator::ir_ne;
 
     /* 语句 */
     ast2ir_handlers[ast_operator_type::AST_OP_ASSIGN] = &IRGenerator::ir_assign;
@@ -728,5 +737,191 @@ bool IRGenerator::ir_neg(ast_node * node)
     node->blockInsts.addInst(negInst);
     node->val = negInst;
 
+    return true;
+}
+
+/// @brief 新增：整数小于比较AST节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_lt(ast_node * node)
+{
+    if (!node || node->sons.size() != 2)
+        return false;
+    ast_node * left_son_visited = ir_visit_ast_node(node->sons[0]);
+    if (!left_son_visited || !left_son_visited->val)
+        return false;
+    ast_node * right_son_visited = ir_visit_ast_node(node->sons[1]);
+    if (!right_son_visited || !right_son_visited->val)
+        return false;
+
+    Function * currentFunc = module->getCurrentFunction();
+    if (!currentFunc)
+        return false;
+
+    Type * resultType = IntegerType::New(32); // Assuming i32 for boolean result (0 or 1)
+    Instruction * cmp_inst = new BinaryInstruction(currentFunc,
+                                                   IRInstOperator::IRINST_OP_CMP_LT_I,
+                                                   left_son_visited->val,
+                                                   right_son_visited->val,
+                                                   resultType);
+    node->blockInsts.addInst(left_son_visited->blockInsts);
+    node->blockInsts.addInst(right_son_visited->blockInsts);
+    node->blockInsts.addInst(cmp_inst);
+    node->val = cmp_inst;
+    return true;
+}
+
+/// @brief 新增：整数小于等于比较AST节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_le(ast_node * node)
+{
+    if (!node || node->sons.size() != 2)
+        return false;
+    ast_node * left_son_visited = ir_visit_ast_node(node->sons[0]);
+    if (!left_son_visited || !left_son_visited->val)
+        return false;
+    ast_node * right_son_visited = ir_visit_ast_node(node->sons[1]);
+    if (!right_son_visited || !right_son_visited->val)
+        return false;
+
+    Function * currentFunc = module->getCurrentFunction();
+    if (!currentFunc)
+        return false;
+
+    Type * resultType = IntegerType::New(32);
+    Instruction * cmp_inst = new BinaryInstruction(currentFunc,
+                                                   IRInstOperator::IRINST_OP_CMP_LE_I,
+                                                   left_son_visited->val,
+                                                   right_son_visited->val,
+                                                   resultType);
+    node->blockInsts.addInst(left_son_visited->blockInsts);
+    node->blockInsts.addInst(right_son_visited->blockInsts);
+    node->blockInsts.addInst(cmp_inst);
+    node->val = cmp_inst;
+    return true;
+}
+
+/// @brief 新增：整数大于比较AST节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_gt(ast_node * node)
+{
+    if (!node || node->sons.size() != 2)
+        return false;
+    ast_node * left_son_visited = ir_visit_ast_node(node->sons[0]);
+    if (!left_son_visited || !left_son_visited->val)
+        return false;
+    ast_node * right_son_visited = ir_visit_ast_node(node->sons[1]);
+    if (!right_son_visited || !right_son_visited->val)
+        return false;
+
+    Function * currentFunc = module->getCurrentFunction();
+    if (!currentFunc)
+        return false;
+
+    Type * resultType = IntegerType::New(32);
+    Instruction * cmp_inst = new BinaryInstruction(currentFunc,
+                                                   IRInstOperator::IRINST_OP_CMP_GT_I,
+                                                   left_son_visited->val,
+                                                   right_son_visited->val,
+                                                   resultType);
+    node->blockInsts.addInst(left_son_visited->blockInsts);
+    node->blockInsts.addInst(right_son_visited->blockInsts);
+    node->blockInsts.addInst(cmp_inst);
+    node->val = cmp_inst;
+    return true;
+}
+
+/// @brief 新增：整数大于等于比较AST节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_ge(ast_node * node)
+{
+    if (!node || node->sons.size() != 2)
+        return false;
+    ast_node * left_son_visited = ir_visit_ast_node(node->sons[0]);
+    if (!left_son_visited || !left_son_visited->val)
+        return false;
+    ast_node * right_son_visited = ir_visit_ast_node(node->sons[1]);
+    if (!right_son_visited || !right_son_visited->val)
+        return false;
+
+    Function * currentFunc = module->getCurrentFunction();
+    if (!currentFunc)
+        return false;
+
+    Type * resultType = IntegerType::New(32);
+    Instruction * cmp_inst = new BinaryInstruction(currentFunc,
+                                                   IRInstOperator::IRINST_OP_CMP_GE_I,
+                                                   left_son_visited->val,
+                                                   right_son_visited->val,
+                                                   resultType);
+    node->blockInsts.addInst(left_son_visited->blockInsts);
+    node->blockInsts.addInst(right_son_visited->blockInsts);
+    node->blockInsts.addInst(cmp_inst);
+    node->val = cmp_inst;
+    return true;
+}
+
+/// @brief 新增：整数等于比较AST节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_eq(ast_node * node)
+{
+    if (!node || node->sons.size() != 2)
+        return false;
+    ast_node * left_son_visited = ir_visit_ast_node(node->sons[0]);
+    if (!left_son_visited || !left_son_visited->val)
+        return false;
+    ast_node * right_son_visited = ir_visit_ast_node(node->sons[1]);
+    if (!right_son_visited || !right_son_visited->val)
+        return false;
+
+    Function * currentFunc = module->getCurrentFunction();
+    if (!currentFunc)
+        return false;
+
+    Type * resultType = IntegerType::New(32);
+    Instruction * cmp_inst = new BinaryInstruction(currentFunc,
+                                                   IRInstOperator::IRINST_OP_CMP_EQ_I,
+                                                   left_son_visited->val,
+                                                   right_son_visited->val,
+                                                   resultType);
+    node->blockInsts.addInst(left_son_visited->blockInsts);
+    node->blockInsts.addInst(right_son_visited->blockInsts);
+    node->blockInsts.addInst(cmp_inst);
+    node->val = cmp_inst;
+    return true;
+}
+
+/// @brief 新增：整数不等于比较AST节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_ne(ast_node * node)
+{
+    if (!node || node->sons.size() != 2)
+        return false;
+    ast_node * left_son_visited = ir_visit_ast_node(node->sons[0]);
+    if (!left_son_visited || !left_son_visited->val)
+        return false;
+    ast_node * right_son_visited = ir_visit_ast_node(node->sons[1]);
+    if (!right_son_visited || !right_son_visited->val)
+        return false;
+
+    Function * currentFunc = module->getCurrentFunction();
+    if (!currentFunc)
+        return false;
+
+    Type * resultType = IntegerType::New(32);
+    Instruction * cmp_inst = new BinaryInstruction(currentFunc,
+                                                   IRInstOperator::IRINST_OP_CMP_NE_I,
+                                                   left_son_visited->val,
+                                                   right_son_visited->val,
+                                                   resultType);
+    node->blockInsts.addInst(left_son_visited->blockInsts);
+    node->blockInsts.addInst(right_son_visited->blockInsts);
+    node->blockInsts.addInst(cmp_inst);
+    node->val = cmp_inst;
     return true;
 }

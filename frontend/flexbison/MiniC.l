@@ -53,10 +53,12 @@
 "/"         { return T_DIV; }
 "%"         { return T_MOD; }
 
-/* New Keywords and Operators */
 "if"        { return T_IF; }
 "else"      { return T_ELSE; }
 "while"     { return T_WHILE; }
+
+"break"     { return T_BREAK; }
+"continue"  { return T_CONTINUE; }
 
 "<"         { return T_LT; }
 "<="        { return T_LE; }
@@ -68,7 +70,6 @@
 "&&"        { return T_LOGICAL_AND; }
 "||"        { return T_LOGICAL_OR; }
 "!"         { return T_LOGICAL_NOT; }
-/* End of New Keywords and Operators */
 
 "0"[xX][0-9a-fA-F]+ {
                 yylval.integer_num.val = (uint32_t)strtol(yytext, (char **)NULL, 16);

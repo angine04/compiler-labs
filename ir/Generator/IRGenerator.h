@@ -132,6 +132,15 @@ protected:
     /// @return 翻译是否成功，true：成功，false：失败
     bool ir_variable_declare(ast_node * node);
 
+    // New IR generation functions for relational operators
+    bool ir_lt(ast_node * node); // For AST_OP_LT
+    bool ir_le(ast_node * node); // For AST_OP_LE
+    bool ir_gt(ast_node * node); // For AST_OP_GT
+    bool ir_ge(ast_node * node); // For AST_OP_GE
+    bool ir_eq(ast_node * node); // For AST_OP_EQ
+    bool ir_ne(ast_node * node); // For AST_OP_NE
+    // End of new relational operator functions
+
     /// @brief 未知节点类型的节点处理
     /// @param node AST节点
     /// @return 翻译是否成功，true：成功，false：失败

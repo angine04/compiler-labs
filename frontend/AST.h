@@ -93,6 +93,25 @@ enum class ast_operator_type : int {
     AST_OP_MOD, // 求余 (新添加)
     AST_OP_NEG, // 单目取负 (新添加)
 
+    // New AST node types for control flow and new expressions
+    AST_OP_IF,          // If statement
+    AST_OP_WHILE,       // While statement
+    AST_OP_LT,          // Less than <
+    AST_OP_LE,          // Less than or equal <=
+    AST_OP_GT,          // Greater than >
+    AST_OP_GE,          // Greater than or equal >=
+    AST_OP_EQ,          // Equal ==
+    AST_OP_NE,          // Not equal !=
+    AST_OP_LOGICAL_AND, // Logical AND &&
+    AST_OP_LOGICAL_OR,  // Logical OR ||
+    AST_OP_LOGICAL_NOT, // Logical NOT !
+    // End of New AST node types
+
+    // AST node types for break and continue
+    AST_OP_BREAK,    // break statement
+    AST_OP_CONTINUE, // continue statement
+    // End of break and continue types
+
     // TODO 抽象语法树其它内部节点运算符追加
 
     /// @brief 最大标识符，表示非法运算符

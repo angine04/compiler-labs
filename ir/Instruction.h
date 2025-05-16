@@ -49,6 +49,15 @@ enum class IRInstOperator : std::int8_t {
     /// @brief 整数的有符号求余指令，二元运算
     IRINST_OP_REM_I,
 
+    // Relational operations (integer)
+    IRINST_OP_CMP_LT_I, // Less than <
+    IRINST_OP_CMP_LE_I, // Less than or equal <=
+    IRINST_OP_CMP_GT_I, // Greater than >
+    IRINST_OP_CMP_GE_I, // Greater than or equal >=
+    IRINST_OP_CMP_EQ_I, // Equal ==
+    IRINST_OP_CMP_NE_I, // Not equal !=
+    // End of Relational operations
+
     /// @brief 赋值指令，一元运算
     IRINST_OP_ASSIGN,
 

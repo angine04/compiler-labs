@@ -52,9 +52,32 @@ void yyerror(char * msg);
 %token T_ASSIGN T_SUB T_ADD
 %token T_MUL T_DIV T_MOD
 
+// New Tokens for control flow, relational and logical operators
+%token T_IF T_ELSE T_WHILE
+%token T_LT T_LE T_GT T_GE T_EQ T_NE
+%token T_LOGICAL_AND T_LOGICAL_OR T_LOGICAL_NOT
+// End of New Tokens
+
+// Tokens for break and continue
+%token T_BREAK T_CONTINUE
+
+// Virtual token for dangling else resolution
+%token T_IF_WITHOUT_ELSE
+
+%left T_LOGICAL_OR
+%left T_LOGICAL_AND
+%left T_EQ T_NE
+%left T_LT T_LE T_GT T_GE
 %left T_ADD T_SUB
 %left T_MUL T_DIV T_MOD
 %right T_UMINUS /* 虚拟Token，用于单目负号的优先级 */
+%right T_LOGICAL_NOT /* Logical NOT is unary and right-associative */
+
+// Dangling else resolution: T_ELSE (shift action) should have higher precedence
+// than an 'if' without an 'else' (reduce action).
+// So, T_IF_WITHOUT_ELSE should have lower precedence.
+%right T_IF_WITHOUT_ELSE // Lower precedence for the 'if' rule without an else
+%right T_ELSE             // Higher precedence for the T_ELSE token itself
 
 // 非终结符
 // %type指定文法的非终结符号，<>可指定文法属性
@@ -71,6 +94,19 @@ void yyerror(char * msg);
 %type <node> MulExp /* 新增非终结符 MulExp */
 %type <node> RealParamList
 %type <type> BasicType
+
+// New non-terminals for control flow and new expression types
+%type <node> IfStmt
+%type <node> WhileStmt
+%type <node> RelationalExp
+%type <node> EqualityExp
+%type <node> LogicalAndExp
+%type <node> LogicalOrExp
+%type <node> RealParamListOpt // Optional real parameter list for function calls
+
+// New non-terminals for break and continue statements
+%type <node> BreakStmt
+%type <node> ContinueStmt
 %%
 
 // 编译单元可包含若干个函数与全局变量定义。要在语义分析时检查main函数存在
@@ -250,68 +286,131 @@ Statement : T_RETURN Expr T_SEMICOLON {
 	}
 	| T_SEMICOLON {
 		// 空语句
-
-		// 直接返回空指针，需要再把语句加入到语句块时要注意判断，空语句不要加入
-		$$ = nullptr;
+		$$ = nullptr; // Or a specific AST node for empty statement if needed
+	}
+	| IfStmt {
+		$$ = $1;
+	}
+	| WhileStmt {
+		$$ = $1;
+	}
+	| BreakStmt {
+		$$ = $1;
+	}
+	| ContinueStmt {
+		$$ = $1;
 	}
 	;
 
 // 表达式文法 expr : AddExp
-// 表达式支持加法、减法、乘法、除法、取模及单目负号运算
-Expr : AddExp {
-		// 直接传递给归约后的节点
-		$$ = $1;
-	}
-	;
+// 表达式目前只支持加法与减法运算，现在扩展到逻辑和关系运算
+Expr : LogicalOrExp {
+        $$ = $1;
+    }
+    ;
 
-// 加减表达式文法
-// AddExp : MulExp | AddExp T_ADD MulExp | AddExp T_SUB MulExp
+LogicalOrExp : LogicalAndExp {
+        $$ = $1;
+    }
+    | LogicalOrExp T_LOGICAL_OR LogicalAndExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_LOGICAL_OR, $1, $3);
+    }
+    ;
+
+LogicalAndExp : EqualityExp {
+        $$ = $1;
+    }
+    | LogicalAndExp T_LOGICAL_AND EqualityExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_LOGICAL_AND, $1, $3);
+    }
+    ;
+
+EqualityExp : RelationalExp {
+        $$ = $1;
+    }
+    | EqualityExp T_EQ RelationalExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_EQ, $1, $3);
+    }
+    | EqualityExp T_NE RelationalExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_NE, $1, $3);
+    }
+    ;
+
+RelationalExp : AddExp {
+        $$ = $1;
+    }
+    | RelationalExp T_LT AddExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_LT, $1, $3);
+    }
+    | RelationalExp T_LE AddExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_LE, $1, $3);
+    }
+    | RelationalExp T_GT AddExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_GT, $1, $3);
+    }
+    | RelationalExp T_GE AddExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_GE, $1, $3);
+    }
+    ;
+
+// AddExp and MulExp rules that were missing
 AddExp : MulExp {
-		$$ = $1;
-	}
-	| AddExp T_ADD MulExp {
-		$$ = create_contain_node(ast_operator_type::AST_OP_ADD, $1, $3);
-	}
-	| AddExp T_SUB MulExp {
-		$$ = create_contain_node(ast_operator_type::AST_OP_SUB, $1, $3);
-	}
-	;
+        $$ = $1;
+    }
+    | AddExp T_ADD MulExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_ADD, $1, $3);
+    }
+    | AddExp T_SUB MulExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_SUB, $1, $3);
+    }
+    ;
 
-// 乘除模表达式文法 (新)
-// MulExp : UnaryExp | MulExp T_MUL UnaryExp | MulExp T_DIV UnaryExp | MulExp T_MOD UnaryExp
 MulExp : UnaryExp {
-		$$ = $1;
-	}
-	| MulExp T_MUL UnaryExp {
-		$$ = create_contain_node(ast_operator_type::AST_OP_MUL, $1, $3);
-	}
-	| MulExp T_DIV UnaryExp {
-		$$ = create_contain_node(ast_operator_type::AST_OP_DIV, $1, $3);
-	}
-	| MulExp T_MOD UnaryExp {
-		$$ = create_contain_node(ast_operator_type::AST_OP_MOD, $1, $3);
-	}
-	;
+        $$ = $1;
+    }
+    | MulExp T_MUL UnaryExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_MUL, $1, $3);
+    }
+    | MulExp T_DIV UnaryExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_DIV, $1, $3);
+    }
+    | MulExp T_MOD UnaryExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_MOD, $1, $3);
+    }
+    ;
 
-// 单目表达式
-// UnaryExp : PrimaryExp | T_SUB UnaryExp %prec T_UMINUS | 函数调用
+// 目前一元表达式可以为基本表达式、函数调用，其中函数调用的实参可有可无
+// 其文法为：unaryExp: primaryExp | T_ID T_L_PAREN realParamList? T_R_PAREN
+// 由于bison不支持？表达，因此变更后的文法为：
+// unaryExp: primaryExp | T_ID T_L_PAREN T_R_PAREN | T_ID T_L_PAREN realParamList T_R_PAREN
+// Update UnaryExp for T_LOGICAL_NOT and use RealParamListOpt
 UnaryExp : PrimaryExp {
-		$$ = $1;
-	}
-	| T_SUB UnaryExp %prec T_UMINUS {
-		$$ = create_contain_node(ast_operator_type::AST_OP_NEG, $2);
-	}
-	| T_ID T_L_PAREN T_R_PAREN { // 函数调用（无参数）
-		ast_node * name_node = ast_node::New(std::string($1.id), $1.lineno);
-		free($1.id);
-		$$ = create_func_call(name_node, nullptr);
-	}
-	| T_ID T_L_PAREN RealParamList T_R_PAREN { // 函数调用（有参数）
-		ast_node * name_node = ast_node::New(std::string($1.id), $1.lineno);
-		free($1.id);
-		$$ = create_func_call(name_node, $3);
-	}
-	;
+        $$ = $1;
+    }
+    | T_SUB UnaryExp %prec T_UMINUS {
+        $$ = create_contain_node(ast_operator_type::AST_OP_NEG, $2);
+    }
+    | T_LOGICAL_NOT UnaryExp {
+        $$ = create_contain_node(ast_operator_type::AST_OP_LOGICAL_NOT, $2);
+    }
+    | T_ID T_L_PAREN RealParamListOpt T_R_PAREN {
+        // Function call
+        // $1 is var_id_attr (due to %token <var_id> T_ID)
+        // $3 is RealParamListOpt (ast_node* which is a list of expressions, or nullptr)
+        ast_node * id_node = ast_node::New($1); // Create AST node for the function ID from var_id_attr $1
+        free($1.id);
+        $$ = create_func_call(id_node, $3);
+    }
+    ;
+
+// Optional Real Parameter List for function calls
+RealParamListOpt : /* empty */ {
+        $$ = nullptr; // No parameters
+    }
+    | RealParamList {
+        $$ = $1;
+    }
+    ;
 
 // 基本表达式支持无符号整型字面量、带括号的表达式、具有左值属性的表达式
 // 其文法为：primaryExp: T_L_PAREN expr T_R_PAREN | T_DIGIT | lVal
@@ -358,6 +457,43 @@ LVal : T_ID {
 		free($1.id);
 	}
 	;
+
+// Definition for IfStmt
+IfStmt : T_IF T_L_PAREN Expr T_R_PAREN Statement %prec T_IF_WITHOUT_ELSE
+           { 
+             // If statement without else
+             // $3 is Expr (condition), $5 is Statement (then_branch)
+             $$ = create_contain_node(ast_operator_type::AST_OP_IF, $3, $5);
+           }
+       | T_IF T_L_PAREN Expr T_R_PAREN Statement T_ELSE Statement
+           { 
+             // If statement with else
+             // $3 is Expr (condition), $5 is Statement (then_branch), $7 is Statement (else_branch)
+             $$ = create_contain_node(ast_operator_type::AST_OP_IF, $3, $5, $7);
+           }
+       ;
+
+// Definition for WhileStmt
+WhileStmt : T_WHILE T_L_PAREN Expr T_R_PAREN Statement
+              { 
+                // While statement
+                // $3 is Expr (condition), $5 is Statement (body)
+                $$ = create_contain_node(ast_operator_type::AST_OP_WHILE, $3, $5);
+              }
+            ;
+
+// Definitions for BreakStmt and ContinueStmt
+BreakStmt : T_BREAK T_SEMICOLON
+            { 
+              $$ = create_contain_node(ast_operator_type::AST_OP_BREAK);
+            }
+            ;
+
+ContinueStmt : T_CONTINUE T_SEMICOLON
+               { 
+                 $$ = create_contain_node(ast_operator_type::AST_OP_CONTINUE);
+               }
+               ;
 
 %%
 
