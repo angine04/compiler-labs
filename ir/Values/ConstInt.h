@@ -19,7 +19,7 @@
 
 #include "Constant.h"
 #include "IRConstant.h"
-#include "IntegerType.h"
+#include "Types/IntegerType.h"
 
 ///
 /// @brief 整型常量类
@@ -34,6 +34,16 @@ public:
     {
         name = std::to_string(val);
         intVal = val;
+    }
+
+    ///
+    /// @brief Construct a new Const Int object (for i1/boolean)
+    ///
+    /// @param b_val The boolean value
+    explicit ConstInt(bool b_val) : Constant(IntegerType::getTypeBool())
+    {
+        this->intVal = b_val ? 1 : 0;
+        this->name = std::to_string(this->intVal);
     }
 
     /// @brief 获取名字
