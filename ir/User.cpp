@@ -137,6 +137,15 @@ std::vector<Use *> & User::getOperands()
 }
 
 ///
+/// @brief Get the Operands object
+/// @return const std::vector<Use *>&
+///
+const std::vector<Use *> & User::getOperands() const
+{
+    return operands;
+}
+
+///
 /// @brief 取得操作数
 /// @return std::vector<Value *>
 ///
@@ -165,9 +174,20 @@ int32_t User::getOperandsNum()
 ///
 Value * User::getOperand(int32_t pos)
 {
-    if (pos < (int32_t) operands.size()) {
-        return operands[pos]->getUsee();
+    if (pos < 0 || pos >= (int32_t) operands.size()) {
+        return nullptr;
     }
+    return operands[pos]->getUsee();
+}
 
-    return nullptr;
+///
+/// @brief Get the Operands object
+/// @return const Value*
+///
+const Value * User::getOperand(int32_t pos) const
+{
+    if (pos < 0 || pos >= (int32_t) operands.size()) {
+        return nullptr;
+    }
+    return operands[pos]->getUsee();
 }

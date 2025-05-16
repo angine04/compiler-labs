@@ -24,7 +24,13 @@
 /// @param srcVal1
 /// @param srcVal2
 Instruction::Instruction(Function * _func, IRInstOperator _op, Type * _type) : User(_type), op(_op), func(_func)
-{}
+{
+    // 只有会产生结果的指令才需要生成临时变量名
+    // 标签指令等特殊指令会在其自己的构造函数中处理命名
+    if (hasResultValue() && _func) { // 确保 func 不是 nullptr
+        setIRName(_func->newTempValueName());
+    }
+}
 
 /// @brief 获取指令操作码
 /// @return 指令操作码

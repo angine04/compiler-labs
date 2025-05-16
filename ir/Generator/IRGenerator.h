@@ -141,6 +141,9 @@ protected:
     bool ir_ne(ast_node * node); // For AST_OP_NE
     // End of new relational operator functions
 
+    // New IR generation function for if statements
+    bool ir_if_statement(ast_node * node); // For AST_OP_IF
+
     /// @brief 未知节点类型的节点处理
     /// @param node AST节点
     /// @return 翻译是否成功，true：成功，false：失败

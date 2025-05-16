@@ -58,6 +58,9 @@ enum class IRInstOperator : std::int8_t {
     IRINST_OP_CMP_NE_I, // Not equal !=
     // End of Relational operations
 
+    /// @brief Conditional Branch instruction (bc %cond, true_label, false_label)
+    IRINST_OP_BR_COND,
+
     /// @brief 赋值指令，一元运算
     IRINST_OP_ASSIGN,
 

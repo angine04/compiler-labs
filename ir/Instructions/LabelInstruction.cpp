@@ -14,6 +14,7 @@
 /// </table>
 ///
 #include "VoidType.h"
+#include "Function.h"
 
 #include "LabelInstruction.h"
 
@@ -23,7 +24,11 @@
 ///
 LabelInstruction::LabelInstruction(Function * _func)
     : Instruction(_func, IRInstOperator::IRINST_OP_LABEL, VoidType::getType())
-{}
+{
+    if (_func) { // 确保 func 不是 nullptr
+        setIRName(_func->newLabelName());
+    }
+}
 
 /// @brief 转换成字符串
 /// @param str 返回指令字符串

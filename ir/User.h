@@ -70,6 +70,13 @@ public:
     Value * getOperand(int32_t pos);
 
     ///
+    /// @brief 获取指定的操作数
+    /// @param pos 位置
+    /// @return const Value* 操作数
+    ///
+    const Value * getOperand(int32_t pos) const;
+
+    ///
     /// @brief 更新指定Pos的Value
     /// @param pos 位置
     /// @param val 操作数
@@ -111,4 +118,10 @@ public:
     /// @brief 清除所有的操作数
     ///
     void clearOperands();
+
+    ///
+    /// @brief 获取操作数列表
+    /// @return const std::vector<Use *>& 操作数列表
+    ///
+    const std::vector<Use *> & getOperands() const;
 };

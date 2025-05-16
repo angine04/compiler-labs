@@ -333,3 +333,26 @@ void Function::realArgCountReset()
 {
     this->realArgCount = 0;
 }
+
+// Adding new method implementations here
+std::string Function::newTempValueName()
+{
+    return "%" + std::to_string(tempVarCounter++);
+}
+
+std::string Function::newLabelName()
+{
+    return ".L" + std::to_string(labelCounter++);
+}
+
+int Function::getNextInstructionID()
+{
+    // 注意：此函数现在与 renameIR 中的 instructionCounter 重置逻辑有潜在冲突。
+    // renameIR 会重置 instructionCounter。如果 getNextInstructionID() 在此之后独立使用，
+    // 可能会产生重复的ID。
+    // 如果 renameIR 是唯一设置指令名的地方，那么 getNextInstructionID 应该在 renameIR 内部调用，
+    // 或者 renameIR 中的 instructionCounter 管理需要更精细。
+    // 暂时保持原设计，如果 renameIR 逻辑确实是主要的ID生成方式，
+    // 那么这个独立的 getNextInstructionID 可能需要重新审视其用途或被 renameIR 内部消化。
+    return instructionCounter++;
+}

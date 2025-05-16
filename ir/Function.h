@@ -170,6 +170,15 @@ public:
     ///
     void realArgCountReset();
 
+    /// @brief 生成新的临时变量名，例如 %1, %2
+    std::string newTempValueName();
+
+    /// @brief 生成新的标签名，例如 .L0, .L1
+    std::string newLabelName();
+
+    /// @brief 获取下一个指令的ID（用于 renameIR)
+    int getNextInstructionID();
+
 private:
     ///
     /// @brief 函数的返回值类型，有点冗余，可删除，直接从type中取得即可
@@ -250,4 +259,8 @@ private:
     /// @brief 累计的实参个数，用于ARG指令的统计
     ///
     int32_t realArgCount = 0;
+
+    int tempVarCounter = 0;     ///< 临时变量计数器
+    int labelCounter = 0;       ///< 标签计数器
+    int instructionCounter = 0; ///< 指令计数器（用于 renameIR）
 };

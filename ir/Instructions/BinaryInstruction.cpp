@@ -62,22 +62,22 @@ void BinaryInstruction::toString(std::string & str)
 
         // Cases for new comparison operators
         case IRInstOperator::IRINST_OP_CMP_LT_I:
-            str = getIRName() + " = cmp_lt " + src1->getIRName() + ", " + src2->getIRName();
+            str = getIRName() + " = cmp lt " + src1->getIRName() + ", " + src2->getIRName();
             break;
         case IRInstOperator::IRINST_OP_CMP_LE_I:
-            str = getIRName() + " = cmp_le " + src1->getIRName() + ", " + src2->getIRName();
+            str = getIRName() + " = cmp le " + src1->getIRName() + ", " + src2->getIRName();
             break;
         case IRInstOperator::IRINST_OP_CMP_GT_I:
-            str = getIRName() + " = cmp_gt " + src1->getIRName() + ", " + src2->getIRName();
+            str = getIRName() + " = cmp gt " + src1->getIRName() + ", " + src2->getIRName();
             break;
         case IRInstOperator::IRINST_OP_CMP_GE_I:
-            str = getIRName() + " = cmp_ge " + src1->getIRName() + ", " + src2->getIRName();
+            str = getIRName() + " = cmp ge " + src1->getIRName() + ", " + src2->getIRName();
             break;
         case IRInstOperator::IRINST_OP_CMP_EQ_I:
-            str = getIRName() + " = cmp_eq " + src1->getIRName() + ", " + src2->getIRName();
+            str = getIRName() + " = cmp eq " + src1->getIRName() + ", " + src2->getIRName();
             break;
         case IRInstOperator::IRINST_OP_CMP_NE_I:
-            str = getIRName() + " = cmp_ne " + src1->getIRName() + ", " + src2->getIRName();
+            str = getIRName() + " = cmp ne " + src1->getIRName() + ", " + src2->getIRName();
             break;
             // End of new comparison operator cases
 

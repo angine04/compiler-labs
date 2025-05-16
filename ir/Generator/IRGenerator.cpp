@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <vector>
 #include <iostream>
+#include <cassert> // For assert
 
 #include "AST.h"
 #include "Common.h"
@@ -34,6 +35,7 @@
 #include "MoveInstruction.h"
 #include "GotoInstruction.h"
 #include "IntegerType.h"
+#include "BranchInstruction.h"
 
 /// @brief 构造函数
 /// @param _root AST的根
@@ -60,6 +62,9 @@ IRGenerator::IRGenerator(ast_node * _root, Module * _module) : root(_root), modu
     ast2ir_handlers[ast_operator_type::AST_OP_GE] = &IRGenerator::ir_ge;
     ast2ir_handlers[ast_operator_type::AST_OP_EQ] = &IRGenerator::ir_eq;
     ast2ir_handlers[ast_operator_type::AST_OP_NE] = &IRGenerator::ir_ne;
+
+    /* If statement */
+    ast2ir_handlers[ast_operator_type::AST_OP_IF] = &IRGenerator::ir_if_statement;
 
     /* 语句 */
     ast2ir_handlers[ast_operator_type::AST_OP_ASSIGN] = &IRGenerator::ir_assign;
@@ -923,5 +928,148 @@ bool IRGenerator::ir_ne(ast_node * node)
     node->blockInsts.addInst(right_son_visited->blockInsts);
     node->blockInsts.addInst(cmp_inst);
     node->val = cmp_inst;
+    return true;
+}
+
+/// @brief 新增：if语句翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_if_statement(ast_node * node)
+{
+    // Assuming ast_node has line_no. If not, remove node->line_no from this log.
+    printf("[DEBUG] ir_if_statement: Entered for node type %d (line %ld approx)\n",
+           (int) node->node_type,
+           node->line_no);
+    fflush(stdout);
+
+    if (!node || (node->sons.size() != 2 && node->sons.size() != 3)) {
+        printf("[ERROR] ir_if_statement: Invalid node or son count (%zu)\n", node ? node->sons.size() : 0);
+        fflush(stdout);
+        return false;
+    }
+
+    Function * currentFunc = module->getCurrentFunction();
+    printf("[DEBUG] ir_if_statement: currentFunc = %p\n", (void *) currentFunc);
+    fflush(stdout);
+    assert(currentFunc != nullptr);
+
+    ast_node * condition_node = node->sons[0];
+    ast_node * then_block_node = node->sons[1];
+    ast_node * else_block_node = (node->sons.size() == 3) ? node->sons[2] : nullptr;
+    printf("[DEBUG] ir_if_statement: condition_node=%p, then_block_node=%p, else_block_node=%p\n",
+           (void *) condition_node,
+           (void *) then_block_node,
+           (void *) else_block_node);
+    fflush(stdout);
+    assert(condition_node != nullptr);
+    assert(then_block_node != nullptr);
+    // else_block_node can be nullptr
+
+    // Create labels
+    LabelInstruction * true_label = new LabelInstruction(currentFunc);
+    printf("[DEBUG] ir_if_statement: true_label = %p (IR name: %s)\n",
+           (void *) true_label,
+           true_label->getIRName().c_str());
+    fflush(stdout);
+    assert(true_label != nullptr);
+
+    LabelInstruction * false_label_for_bc = nullptr; // This will be the actual label passed to BranchInstruction
+    LabelInstruction * actual_false_block_label =
+        nullptr; // This is the label for the start of the else block if it exists
+
+    LabelInstruction * endif_label = new LabelInstruction(currentFunc);
+    printf("[DEBUG] ir_if_statement: endif_label = %p (IR name: %s)\n",
+           (void *) endif_label,
+           endif_label->getIRName().c_str());
+    fflush(stdout);
+    assert(endif_label != nullptr);
+
+    if (else_block_node) {
+        actual_false_block_label = new LabelInstruction(currentFunc);
+        printf("[DEBUG] ir_if_statement: actual_false_block_label (for else block) = %p (IR name: %s)\n",
+               (void *) actual_false_block_label,
+               actual_false_block_label->getIRName().c_str());
+        fflush(stdout);
+        assert(actual_false_block_label != nullptr);
+        false_label_for_bc = actual_false_block_label;
+    } else {
+        false_label_for_bc = endif_label; // For if-then, false condition goes to endif
+    }
+    printf("[DEBUG] ir_if_statement: false_label_for_bc (passed to BranchInst) = %p (IR name: %s)\n",
+           (void *) false_label_for_bc,
+           false_label_for_bc->getIRName().c_str());
+    fflush(stdout);
+    assert(false_label_for_bc != nullptr);
+
+    // 1. Translate condition expression
+    printf("[DEBUG] ir_if_statement: Visiting condition_node %p\n", (void *) condition_node);
+    fflush(stdout);
+    ast_node * cond_visited = ir_visit_ast_node(condition_node);
+    printf("[DEBUG] ir_if_statement: cond_visited = %p\n", (void *) cond_visited);
+    fflush(stdout);
+    assert(cond_visited != nullptr);
+    printf("[DEBUG] ir_if_statement: cond_visited->val = %p (IR name: %s)\n",
+           (void *) cond_visited->val,
+           cond_visited->val ? cond_visited->val->getIRName().c_str() : "null");
+    fflush(stdout);
+    assert(cond_visited->val != nullptr);
+    node->blockInsts.addInst(cond_visited->blockInsts);
+    Value * cond_value = cond_visited->val;
+
+    // 2. Create and add conditional branch instruction
+    printf("[DEBUG] ir_if_statement: Creating BranchInstruction with cond=%p, true_label=%p, false_label_for_bc=%p\n",
+           (void *) cond_value,
+           (void *) true_label,
+           (void *) false_label_for_bc);
+    fflush(stdout);
+    BranchInstruction * branchInst = new BranchInstruction(currentFunc, cond_value, true_label, false_label_for_bc);
+    printf("[DEBUG] ir_if_statement: BranchInstruction created: %p\n", (void *) branchInst);
+    fflush(stdout);
+    node->blockInsts.addInst(branchInst);
+
+    // 3. Add true_label, translate then_block, and add goto endif_label
+    printf("[DEBUG] ir_if_statement: Adding true_label %p to blockInsts\n", (void *) true_label);
+    fflush(stdout);
+    node->blockInsts.addInst(true_label);
+    printf("[DEBUG] ir_if_statement: Visiting then_block_node %p\n", (void *) then_block_node);
+    fflush(stdout);
+    ast_node * then_block_visited = ir_visit_ast_node(then_block_node);
+    printf("[DEBUG] ir_if_statement: then_block_visited = %p\n", (void *) then_block_visited);
+    fflush(stdout);
+    assert(then_block_visited != nullptr);
+    node->blockInsts.addInst(then_block_visited->blockInsts);
+
+    printf("[DEBUG] ir_if_statement: Creating GotoInstruction to endif_label %p\n", (void *) endif_label);
+    fflush(stdout);
+    GotoInstruction * gotoEndif = new GotoInstruction(currentFunc, endif_label);
+    printf("[DEBUG] ir_if_statement: GotoInstruction created: %p\n", (void *) gotoEndif);
+    fflush(stdout);
+    node->blockInsts.addInst(gotoEndif);
+
+    // 4. If there's an else_block, add actual_false_block_label and translate else_block
+    if (else_block_node) {
+        assert(actual_false_block_label != nullptr); // Should have been created
+        printf("[DEBUG] ir_if_statement: Adding actual_false_block_label %p to blockInsts\n",
+               (void *) actual_false_block_label);
+        fflush(stdout);
+        node->blockInsts.addInst(actual_false_block_label);
+
+        printf("[DEBUG] ir_if_statement: Visiting else_block_node %p\n", (void *) else_block_node);
+        fflush(stdout);
+        ast_node * else_block_visited = ir_visit_ast_node(else_block_node);
+        printf("[DEBUG] ir_if_statement: else_block_visited = %p\n", (void *) else_block_visited);
+        fflush(stdout);
+        assert(else_block_visited != nullptr);
+        node->blockInsts.addInst(else_block_visited->blockInsts);
+    }
+
+    // 5. Add endif_label
+    printf("[DEBUG] ir_if_statement: Adding endif_label %p to blockInsts\n", (void *) endif_label);
+    fflush(stdout);
+    node->blockInsts.addInst(endif_label);
+
+    node->val = nullptr;
+    printf("[DEBUG] ir_if_statement: Exiting successfully\n");
+    fflush(stdout);
     return true;
 }
