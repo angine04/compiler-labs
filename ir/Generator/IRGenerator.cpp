@@ -763,7 +763,7 @@ bool IRGenerator::ir_lt(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::getTypeInt();
+    Type * resultType = IntegerType::getTypeBool();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_LT_I,
                                                    left_son_visited->val,
@@ -794,7 +794,7 @@ bool IRGenerator::ir_le(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::getTypeInt();
+    Type * resultType = IntegerType::getTypeBool();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_LE_I,
                                                    left_son_visited->val,
@@ -825,7 +825,7 @@ bool IRGenerator::ir_gt(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::getTypeInt();
+    Type * resultType = IntegerType::getTypeBool();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_GT_I,
                                                    left_son_visited->val,
@@ -856,7 +856,7 @@ bool IRGenerator::ir_ge(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::getTypeInt();
+    Type * resultType = IntegerType::getTypeBool();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_GE_I,
                                                    left_son_visited->val,
@@ -887,7 +887,7 @@ bool IRGenerator::ir_eq(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::getTypeInt();
+    Type * resultType = IntegerType::getTypeBool();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_EQ_I,
                                                    left_son_visited->val,
@@ -918,7 +918,7 @@ bool IRGenerator::ir_ne(ast_node * node)
     if (!currentFunc)
         return false;
 
-    Type * resultType = IntegerType::getTypeInt();
+    Type * resultType = IntegerType::getTypeBool();
     Instruction * cmp_inst = new BinaryInstruction(currentFunc,
                                                    IRInstOperator::IRINST_OP_CMP_NE_I,
                                                    left_son_visited->val,
@@ -1001,33 +1001,15 @@ bool IRGenerator::ir_if_statement(ast_node * node)
     fflush(stdout);
     assert(false_label_for_bc != nullptr);
 
-    // 1. Translate condition expression
-    printf("[DEBUG] ir_if_statement: Visiting condition_node %p\n", (void *) condition_node);
+    // 1. Translate condition expression and generate branch
+    printf("[DEBUG] ir_if_statement: Calling generate_branch_for_condition for condition_node %p\n",
+           (void *) condition_node);
     fflush(stdout);
-    ast_node * cond_visited = ir_visit_ast_node(condition_node);
-    printf("[DEBUG] ir_if_statement: cond_visited = %p\n", (void *) cond_visited);
+    generate_branch_for_condition(condition_node, true_label, false_label_for_bc, node->blockInsts);
+    printf("[DEBUG] ir_if_statement: Returned from generate_branch_for_condition\n");
     fflush(stdout);
-    assert(cond_visited != nullptr);
-    printf("[DEBUG] ir_if_statement: cond_visited->val = %p (IR name: %s)\n",
-           (void *) cond_visited->val,
-           cond_visited->val ? cond_visited->val->getIRName().c_str() : "null");
-    fflush(stdout);
-    assert(cond_visited->val != nullptr);
-    node->blockInsts.addInst(cond_visited->blockInsts);
-    Value * cond_value = cond_visited->val;
 
-    // 2. Create and add conditional branch instruction
-    printf("[DEBUG] ir_if_statement: Creating BranchInstruction with cond=%p, true_label=%p, false_label_for_bc=%p\n",
-           (void *) cond_value,
-           (void *) true_label,
-           (void *) false_label_for_bc);
-    fflush(stdout);
-    BranchInstruction * branchInst = new BranchInstruction(currentFunc, cond_value, true_label, false_label_for_bc);
-    printf("[DEBUG] ir_if_statement: BranchInstruction created: %p\n", (void *) branchInst);
-    fflush(stdout);
-    node->blockInsts.addInst(branchInst);
-
-    // 3. Add true_label, translate then_block, and add goto endif_label
+    // 2. Add true_label, translate then_block, and add goto endif_label
     printf("[DEBUG] ir_if_statement: Adding true_label %p to blockInsts\n", (void *) true_label);
     fflush(stdout);
     node->blockInsts.addInst(true_label);
@@ -1072,4 +1054,141 @@ bool IRGenerator::ir_if_statement(ast_node * node)
     printf("[DEBUG] ir_if_statement: Exiting successfully\n");
     fflush(stdout);
     return true;
+}
+
+void IRGenerator::generate_branch_for_condition(ast_node * condition_node,
+                                                LabelInstruction * true_target,
+                                                LabelInstruction * false_target,
+                                                InterCode & instruction_list)
+{
+    assert(condition_node != nullptr);
+    assert(true_target != nullptr);
+    assert(false_target != nullptr);
+    assert(module->getCurrentFunction() != nullptr &&
+           "generate_branch_for_condition called outside of a function context");
+
+    Function * currentFunc = module->getCurrentFunction();
+
+    switch (condition_node->node_type) {
+        case ast_operator_type::AST_OP_EQ:
+        case ast_operator_type::AST_OP_NE:
+        case ast_operator_type::AST_OP_LT:
+        case ast_operator_type::AST_OP_LE:
+        case ast_operator_type::AST_OP_GT:
+        case ast_operator_type::AST_OP_GE: {
+            // This logic is similar to what was in ir_... comparison functions
+            // and parts of ir_if_statement before.
+            ast_node * left_son_visited = ir_visit_ast_node(condition_node->sons[0]);
+            if (!left_son_visited || !left_son_visited->val) {
+                // Handle error or assert
+                // For now, let's assume an error print and return or throw
+                printf("[ERROR] generate_branch_for_condition: Left operand of comparison is null.\n");
+                fflush(stdout);
+                // Potentially throw an exception or return an error code if function signature allows
+                return;
+            }
+            ast_node * right_son_visited = ir_visit_ast_node(condition_node->sons[1]);
+            if (!right_son_visited || !right_son_visited->val) {
+                printf("[ERROR] generate_branch_for_condition: Right operand of comparison is null.\n");
+                fflush(stdout);
+                return;
+            }
+
+            instruction_list.addInst(left_son_visited->blockInsts);
+            instruction_list.addInst(right_son_visited->blockInsts);
+
+            IRInstOperator op;
+            switch (condition_node->node_type) {
+                case ast_operator_type::AST_OP_EQ:
+                    op = IRInstOperator::IRINST_OP_CMP_EQ_I;
+                    break;
+                case ast_operator_type::AST_OP_NE:
+                    op = IRInstOperator::IRINST_OP_CMP_NE_I;
+                    break;
+                case ast_operator_type::AST_OP_LT:
+                    op = IRInstOperator::IRINST_OP_CMP_LT_I;
+                    break;
+                case ast_operator_type::AST_OP_LE:
+                    op = IRInstOperator::IRINST_OP_CMP_LE_I;
+                    break;
+                case ast_operator_type::AST_OP_GT:
+                    op = IRInstOperator::IRINST_OP_CMP_GT_I;
+                    break;
+                case ast_operator_type::AST_OP_GE:
+                    op = IRInstOperator::IRINST_OP_CMP_GE_I;
+                    break;
+                default: // Should not happen due to outer switch
+                    printf("[FATAL] generate_branch_for_condition: Unexpected comparison node_type.\n");
+                    fflush(stdout);
+                    assert(false);
+                    return;
+            }
+
+            Instruction * cmp_inst = new BinaryInstruction(currentFunc,
+                                                           op,
+                                                           left_son_visited->val,
+                                                           right_son_visited->val,
+                                                           IntegerType::getTypeBool());
+            instruction_list.addInst(cmp_inst);
+
+            BranchInstruction * branch_inst = new BranchInstruction(currentFunc, cmp_inst, true_target, false_target);
+            instruction_list.addInst(branch_inst);
+            break;
+        }
+
+            // TODO: Add cases for AST_OP_LOGICAL_NOT, AST_OP_LOGICAL_AND, AST_OP_LOGICAL_OR
+            // TODO: Add case for direct variable/literal boolean values (int to bool conversion)
+
+        default:
+            // Fallback for other types of conditions that might evaluate to a value directly
+            // This is where int->bool conversion for existing variables/values would also be needed.
+            // For now, assume condition_node itself results in a Value*
+            // This part will need refinement for int to bool conversion.
+            printf("[DEBUG] generate_branch_for_condition: Default case for node type %d. Visiting node.\n",
+                   (int) condition_node->node_type);
+            fflush(stdout);
+            ast_node * cond_val_visited = ir_visit_ast_node(condition_node);
+            if (!cond_val_visited || !cond_val_visited->val) {
+                printf("[ERROR] generate_branch_for_condition: Condition node evaluation resulted in null value.\n");
+                fflush(stdout);
+                return;
+            }
+            instruction_list.addInst(cond_val_visited->blockInsts);
+            Value * cond_value = cond_val_visited->val;
+
+            // Here we need to handle the case where cond_value is i32 and needs to be compared against 0 for i1.
+            // For now, if it's already i1, use it. If it's i32, this will be problematic without conversion.
+            if (cond_value->getType()->isInt1Byte()) { // isInt1Byte() is actually isInt1Bit()
+                BranchInstruction * branch_inst =
+                    new BranchInstruction(currentFunc, cond_value, true_target, false_target);
+                instruction_list.addInst(branch_inst);
+            } else if (cond_value->getType()->isInt32Type()) {
+                // Perform implicit bool conversion: value != 0
+                // %temp_i1 = cmp ne %value_i32, 0
+                // bc %temp_i1, true_target, false_target
+                printf("[DEBUG] generate_branch_for_condition: Condition is i32 (%s). Performing implicit conversion "
+                       "to i1 (val != 0).\n",
+                       cond_value->getIRName().c_str());
+                fflush(stdout);
+                ConstInt * zero_i32 = module->newConstInt(0);
+                assert(zero_i32 != nullptr && "Failed to create ConstInt(0) for i32 to i1 conversion");
+
+                Instruction * ne_zero_inst = new BinaryInstruction(currentFunc,
+                                                                   IRInstOperator::IRINST_OP_CMP_NE_I,
+                                                                   cond_value,
+                                                                   zero_i32,
+                                                                   IntegerType::getTypeBool());
+                instruction_list.addInst(ne_zero_inst);
+
+                BranchInstruction * branch_inst =
+                    new BranchInstruction(currentFunc, ne_zero_inst, true_target, false_target);
+                instruction_list.addInst(branch_inst);
+            } else {
+                printf("[ERROR] generate_branch_for_condition: Unsupported type for direct condition: %s\n",
+                       cond_value->getType()->toString().c_str());
+                fflush(stdout);
+                // Or assert(false)
+            }
+            break;
+    }
 }

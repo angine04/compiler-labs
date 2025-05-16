@@ -16,6 +16,8 @@
 ///
 
 #include "VoidType.h"
+#include <cassert>
+#include <cstdio>
 
 ///
 /// @brief 唯一的VOID类型实例
@@ -28,5 +30,8 @@ VoidType * VoidType::oneInstance = new VoidType();
 ///
 VoidType * VoidType::getType()
 {
+    assert(oneInstance != nullptr && "VoidType::oneInstance is NULL!");
+    printf("[DEBUG] VoidType::getType() is called, returning instance: %p\n", (void *) oneInstance);
+    fflush(stdout);
     return oneInstance;
 }

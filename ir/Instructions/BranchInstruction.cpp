@@ -10,13 +10,14 @@
 #include <cstdio>  // For printf
 #include <cassert> // For assert
 #include "BranchInstruction.h"
-#include "Function.h" // Required for Function parameter in constructor
+#include "Function.h"       // Required for Function parameter in constructor
+#include "Types/VoidType.h" // Added to declare VoidType
 
 BranchInstruction::BranchInstruction(Function * _func,
                                      Value * _cond,
                                      LabelInstruction * _trueLabel,
                                      LabelInstruction * _falseLabel)
-    : Instruction(_func, IRInstOperator::IRINST_OP_BR_COND, nullptr) // Result type is nullptr for branch
+    : Instruction(_func, IRInstOperator::IRINST_OP_BR_COND, VoidType::getType()) // Reverted to VoidType::getType()
 {
     // We expect _falseLabel to be non-null because ir_if_statement logic ensures
     // it passes endif_label if there's no actual else block.

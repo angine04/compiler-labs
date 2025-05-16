@@ -21,6 +21,10 @@
 #include "AST.h"
 #include "Module.h"
 
+// Forward declaration for LabelInstruction
+class LabelInstruction;
+class InterCode; // Also forward declare InterCode as it's used by reference
+
 /// @brief AST遍历产生线性IR类
 class IRGenerator {
 
@@ -166,4 +170,9 @@ private:
 
     /// @brief 符号表:模块
     Module * module;
+
+    void generate_branch_for_condition(ast_node * condition_node,
+                                       LabelInstruction * true_target,
+                                       LabelInstruction * false_target,
+                                       InterCode & instruction_list);
 };
