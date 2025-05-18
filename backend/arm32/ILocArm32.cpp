@@ -85,28 +85,50 @@ std::string ArmInst::outPut()
         ret += cond;
     }
 
+    // 用于判断第一个操作数前是否需要空格而不是逗号
+    bool first_operand_emitted = false;
+
     // 结果输出
     if (!result.empty()) {
-        if (result == ":") {
+        if (result == ":") { // 特殊处理标签 L1:
             ret += result;
+            // 标签后面通常没有其他操作数，但这里我们不将 first_operand_emitted 设为 true
+            // 因为标签本身不是传统意义上的"操作数"分隔符
         } else {
             ret += " " + result;
+            first_operand_emitted = true;
         }
     }
 
     // 第一元参数输出
     if (!arg1.empty()) {
-        ret += "," + arg1;
+        if (first_operand_emitted) {
+            ret += "," + arg1;
+        } else {
+            ret += " " + arg1;
+            first_operand_emitted = true;
+        }
     }
 
     // 第二元参数输出
     if (!arg2.empty()) {
-        ret += "," + arg2;
+        if (first_operand_emitted) {
+            ret += "," + arg2;
+        } else {
+            // 这种情况理论上不应发生，如果arg1为空但arg2不为空，则arg2是第一个操作数
+            ret += " " + arg2;
+            first_operand_emitted = true;
+        }
     }
 
     // 其他附加信息输出
     if (!addition.empty()) {
-        ret += "," + addition;
+        if (first_operand_emitted) {
+            ret += "," + addition;
+        } else {
+            ret += " " + addition;
+            // first_operand_emitted = true; // Not strictly needed as it's the last
+        }
     }
 
     return ret;

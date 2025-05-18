@@ -14,6 +14,7 @@
 /// </table>
 ///
 #include <cstdio>
+#include <cassert>
 
 #include "Common.h"
 #include "ILocArm32.h"
@@ -28,6 +29,8 @@
 #include "GotoInstruction.h"
 #include "FuncCallInstruction.h"
 #include "MoveInstruction.h"
+#include "BinaryInstruction.h"
+#include "BranchInstruction.h"
 
 /// @brief 构造函数
 /// @param _irCode 指令
@@ -52,6 +55,17 @@ InstSelectorArm32::InstSelectorArm32(vector<Instruction *> & _irCode,
     translator_handlers[IRInstOperator::IRINST_OP_MUL_I] = &InstSelectorArm32::translate_mul_int32;
     translator_handlers[IRInstOperator::IRINST_OP_DIV_I] = &InstSelectorArm32::translate_div_int32;
     translator_handlers[IRInstOperator::IRINST_OP_REM_I] = &InstSelectorArm32::translate_rem_int32;
+
+    // Register handlers for comparison operators
+    translator_handlers[IRInstOperator::IRINST_OP_CMP_EQ_I] = &InstSelectorArm32::translate_comparison;
+    translator_handlers[IRInstOperator::IRINST_OP_CMP_NE_I] = &InstSelectorArm32::translate_comparison;
+    translator_handlers[IRInstOperator::IRINST_OP_CMP_LT_I] = &InstSelectorArm32::translate_comparison;
+    translator_handlers[IRInstOperator::IRINST_OP_CMP_LE_I] = &InstSelectorArm32::translate_comparison;
+    translator_handlers[IRInstOperator::IRINST_OP_CMP_GT_I] = &InstSelectorArm32::translate_comparison;
+    translator_handlers[IRInstOperator::IRINST_OP_CMP_GE_I] = &InstSelectorArm32::translate_comparison;
+
+    // Register handler for conditional branch operator
+    translator_handlers[IRInstOperator::IRINST_OP_BR_COND] = &InstSelectorArm32::translate_branch_conditional;
 
     translator_handlers[IRInstOperator::IRINST_OP_FUNC_CALL] = &InstSelectorArm32::translate_call;
     translator_handlers[IRInstOperator::IRINST_OP_ARG] = &InstSelectorArm32::translate_arg;
@@ -514,4 +528,106 @@ void InstSelectorArm32::translate_arg(Instruction * inst)
     }
 
     realArgCount++;
+}
+
+/// @brief 比较指令翻译成ARM32汇编
+/// @param inst IR指令
+void InstSelectorArm32::translate_comparison(Instruction * inst)
+{
+    assert(dynamic_cast<BinaryInstruction *>(inst) && "translate_comparison expects a BinaryInstruction");
+
+    Value * src1 = inst->getOperand(0);
+    Value * src2 = inst->getOperand(1);
+
+    // This logic is similar to the beginning of translate_two_operator
+    // to ensure operands are in registers.
+
+    int32_t r_s1 = -1, r_s2 = -1;
+
+    // Get register for src1
+    if (src1->getRegId() != -1) {
+        r_s1 = src1->getRegId();
+    } else {
+        r_s1 = simpleRegisterAllocator.Allocate(src1); // Allocate register for src1 if not already in one
+        iloc.load_var(r_s1, src1);                     // Load src1 into the allocated register
+    }
+
+    // Get register for src2
+    // Note: ARM 'cmp' can take an immediate as the second operand, but for simplicity
+    // and consistency with translate_two_operator, we load both into registers.
+    // A future optimization could be to check if src2 is a ConstInt and use an immediate form of CMP if applicable.
+    if (src2->getRegId() != -1) {
+        r_s2 = src2->getRegId();
+    } else {
+        r_s2 = simpleRegisterAllocator.Allocate(src2); // Allocate register for src2
+        iloc.load_var(r_s2, src2);                     // Load src2 into the allocated register
+    }
+
+    // Emit CMP instruction: cmp r_s1, r_s2
+    // The result (target register of the IR BinaryInstruction) is not explicitly used here for CMP,
+    // as CMP only sets flags. The IR instruction itself (%tX = icmp ...) still exists and has a name,
+    // and SimpleRegisterAllocator might have associated a conceptual regId with it, but we don't mov a 0/1 into it
+    // here.
+    iloc.inst("cmp", "", PlatformArm32::regName[r_s1], PlatformArm32::regName[r_s2]);
+
+    // Register deallocation would depend on the strategy of SimpleRegisterAllocator.
+    // If Allocate(Value*) reserves it for the Value's lifetime or a broader scope, no free here.
+    // If registers were allocated as temporary scratch registers just for this op, they might be freed.
+    // For now, assuming SimpleRegisterAllocator handles this or they are freed later.
+}
+
+/// @brief 条件分支指令翻译成ARM32汇编
+/// @param inst IR指令
+void InstSelectorArm32::translate_branch_conditional(Instruction * inst)
+{
+    assert(dynamic_cast<BranchInstruction *>(inst) && "translate_branch_conditional expects a BranchInstruction");
+    BranchInstruction * branch_inst = static_cast<BranchInstruction *>(inst);
+
+    Value * cond_value = branch_inst->getOperand(0); // This is the BinaryInstruction (the CMP_OP)
+    LabelInstruction * true_label = static_cast<LabelInstruction *>(branch_inst->getOperand(1));
+    LabelInstruction * false_label = static_cast<LabelInstruction *>(branch_inst->getOperand(2));
+
+    // The condition value must be the result of a comparison instruction (a BinaryInstruction with a CMP_OP)
+    assert(dynamic_cast<BinaryInstruction *>(cond_value) &&
+           "Condition for BranchInstruction should be a BinaryInstruction (comparison)");
+    BinaryInstruction * cmp_op_inst = static_cast<BinaryInstruction *>(cond_value);
+    IRInstOperator comparison_op = cmp_op_inst->getOp(); // Get the original comparison type, e.g., IRINST_OP_CMP_EQ_I
+
+    std::string cond_suffix;
+    switch (comparison_op) {
+        case IRInstOperator::IRINST_OP_CMP_EQ_I:
+            cond_suffix = "eq";
+            break;
+        case IRInstOperator::IRINST_OP_CMP_NE_I:
+            cond_suffix = "ne";
+            break;
+        case IRInstOperator::IRINST_OP_CMP_LT_I:
+            cond_suffix = "lt";
+            break; // Signed less than
+        case IRInstOperator::IRINST_OP_CMP_LE_I:
+            cond_suffix = "le";
+            break; // Signed less than or equal
+        case IRInstOperator::IRINST_OP_CMP_GT_I:
+            cond_suffix = "gt";
+            break; // Signed greater than
+        case IRInstOperator::IRINST_OP_CMP_GE_I:
+            cond_suffix = "ge";
+            break; // Signed greater than or equal
+        default:
+            fprintf(
+                stderr,
+                "[FATAL_ERROR] translate_branch_conditional: Unexpected comparison operator %d for branch condition.\n",
+                (int) comparison_op);
+            fflush(stderr);
+            assert(false && "Unknown comparison op for conditional branch");
+            return; // Should not happen
+    }
+
+    // Emit: B<cond> true_label_name
+    // Construct the conditional branch opcode, e.g., "beq", "bne"
+    std::string conditional_branch_opcode = "b" + cond_suffix;
+    iloc.inst(conditional_branch_opcode, true_label->getName());
+
+    // Emit: B false_label_name (unconditional branch)
+    iloc.jump(false_label->getName()); // jump() should emit an unconditional "b label"
 }

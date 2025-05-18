@@ -132,6 +132,10 @@ protected:
     ///
     bool showLinearIR = false;
 
+    // New handlers for comparison and conditional branch
+    void translate_comparison(Instruction * inst);         // For IRINST_OP_CMP_...
+    void translate_branch_conditional(Instruction * inst); // For IRINST_OP_BR_COND
+
 public:
     /// @brief 构造函数
     /// @param _irCode IR指令
