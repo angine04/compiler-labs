@@ -443,7 +443,73 @@ static ast_node * Block()
 }
 
 ///
-/// @brief 文法分析：idtail : varDeclList | T_L_PAREN T_R_PAREN block
+/// @brief 形参解析: formalParam: basicType T_ID
+/// @return ast_node* 形参节点
+///
+static ast_node * formalParam()
+{
+    if (F(T_INT) _(T_VOID)) {
+        type_attr type = rd_lval.type;
+        advance();
+
+        if (F(T_ID)) {
+            var_id_attr id = rd_lval.var_id;
+            advance();
+
+            // 创建类型节点
+            ast_node * type_node = create_type_node(type);
+
+            // 创建变量ID节点
+            ast_node * id_node = ast_node::New(id);
+
+            // 释放字符串空间
+            free(id.id);
+
+            // 创建形参节点
+            return create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAM, type_node, id_node);
+        } else {
+            semerror("形参缺少标识符");
+        }
+    } else {
+        semerror("形参缺少类型");
+    }
+
+    return nullptr;
+}
+
+///
+/// @brief 形参列表解析: formalParamList: formalParam (T_COMMA formalParam)*
+/// @return ast_node* 形参列表节点
+///
+static ast_node * formalParamList()
+{
+    // 创建形参列表节点
+    ast_node * params_node = create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAMS);
+
+    // 解析第一个形参
+    ast_node * param = formalParam();
+    if (!param) {
+        ast_node::Delete(params_node);
+        return nullptr;
+    }
+
+    params_node->insert_son_node(param);
+
+    // 解析后续形参 (T_COMMA formalParam)*
+    while (match(T_COMMA)) {
+        param = formalParam();
+        if (!param) {
+            ast_node::Delete(params_node);
+            return nullptr;
+        }
+        params_node->insert_son_node(param);
+    }
+
+    return params_node;
+}
+
+///
+/// @brief 文法分析：idtail : varDeclList | T_L_PAREN formalParamList? T_R_PAREN block
 /// @param type 类型 变量类型或函数返回值类型
 /// @param id 标识符 变量名或者函数名
 ///
@@ -452,20 +518,29 @@ static ast_node * idtail(type_attr & type, var_id_attr & id)
     if (match(T_L_PAREN)) {
         // 函数定义
 
-        // 目前函数定义没有形参，因此必须是右小括号
-        if (match(T_R_PAREN)) {
+        ast_node * formalParamsNode = nullptr;
 
+        // 检查是否有形参
+        if (F(T_INT) _(T_VOID)) {
+            // 有形参，解析形参列表
+            formalParamsNode = formalParamList();
+            if (!formalParamsNode) {
+                return nullptr;
+            }
+        }
+
+        if (match(T_R_PAREN)) {
             // 识别block
             ast_node * blockNode = Block();
 
-            // 形参结点没有，设置为空指针
-            ast_node * formalParamsNode = nullptr;
-
-            // 创建函数定义的节点，孩子有类型，函数名，语句块和形参(实际上无)
+            // 创建函数定义的节点，孩子有类型，函数名，语句块和形参
             // create_func_def函数内会释放id中指向的标识符空间，切记，之后不要再释放，之前一定要是通过strdup函数或者malloc分配的空间
             return create_func_def(type, id, blockNode, formalParamsNode);
         } else {
             semerror("函数定义缺少右小括号");
+            if (formalParamsNode) {
+                ast_node::Delete(formalParamsNode);
+            }
         }
 
         return nullptr;
@@ -506,7 +581,7 @@ static ast_node * compileUnit()
 
     for (;;) {
         // match匹配并LookAhead往前挪动
-        if (F(T_INT)) {
+        if (F(T_INT) _(T_VOID)) {
             type_attr type = rd_lval.type;
             // 跳过当前的记号，指向下一个记号
             advance();

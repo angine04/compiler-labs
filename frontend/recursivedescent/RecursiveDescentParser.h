@@ -30,6 +30,7 @@ enum RDTokenType {
     T_OCT_LITERAL, // Octal integer literal
 
     T_INT,
+    T_VOID,
     T_ID,
 
     T_L_PAREN,

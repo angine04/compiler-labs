@@ -40,6 +40,7 @@ struct KeywordToken {
 /// @brief  关键字与Token对应表
 static KeywordToken allKeywords[] = {
     {"int", RDTokenType::T_INT},
+    {"void", RDTokenType::T_VOID},
     {"return", RDTokenType::T_RETURN},
 };
 
