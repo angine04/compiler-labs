@@ -20,6 +20,8 @@
 #include "AttrType.h"
 #include "RecursiveDescentFlex.h"
 #include "RecursiveDescentParser.h"
+#include "Type.h"
+#include "Type.h"
 
 // 定义全局变量给词法分析使用，用于填充值
 RDSType rd_lval;
@@ -286,7 +288,38 @@ static ast_node * statement()
 }
 
 ///
-/// @brief 变量定义列表语法识别 其文法：varDeclList : T_COMMA T_ID varDeclList | T_SEMICOLON
+/// @brief 处理单个变量定义（支持初始化）
+/// @param type 变量类型
+/// @param id 变量标识符
+/// @return 变量定义节点（普通声明或初始化节点）
+///
+static ast_node * processVarDef(type_attr & type, var_id_attr & id)
+{
+    if (match(T_ASSIGN)) {
+        // 有初始化值
+        ast_node * expr_node = Expression();
+        if (!expr_node) {
+            semerror("变量初始化缺少表达式");
+            return nullptr;
+        }
+
+        // 创建变量ID节点
+        ast_node * id_node = ast_node::New(id);
+
+        // 创建初始化节点
+        ast_node * init_node = create_contain_node(ast_operator_type::AST_OP_VAR_INIT, id_node, expr_node);
+        init_node->type = typeAttr2Type(type);
+
+        return init_node;
+    } else {
+        // 普通变量声明
+        return createVarDeclNode(type, id);
+    }
+}
+
+///
+/// @brief 变量定义列表语法识别，支持变量初始化
+/// 其文法：varDeclList : T_COMMA T_ID (T_ASSIGN Expression)? varDeclList | T_SEMICOLON
 /// @param vardeclstmt_node 变量声明语句节点，所有的变量节点应该加到该节点中
 ///
 static void varDeclList(ast_node * vardeclstmt_node)
@@ -298,13 +331,25 @@ static void varDeclList(ast_node * vardeclstmt_node)
         // 检查是否是标识符
         if (F(T_ID)) {
 
-            // 定义列表中定义的变量
+            // 定义列表中定义的变量，支持初始化
+            var_id_attr id = rd_lval.var_id;
+            advance(); // 跳过T_ID
 
-            // 新建变量声明节点并加入变量声明语句中
-            (void) add_var_decl_node(vardeclstmt_node, rd_lval.var_id);
+            // 从变量声明语句节点中获取类型信息
+            Type * stmt_type = vardeclstmt_node->type;
+            type_attr type;
+            if (stmt_type->toString() == "i32") {
+                type.type = BasicType::TYPE_INT;
+            } else {
+                type.type = BasicType::TYPE_VOID;
+            }
+            type.lineno = id.lineno;
 
-            // 填过当前的Token，指向下一个Token
-            advance();
+            // 处理变量定义（可能包含初始化）
+            ast_node * var_node = processVarDef(type, id);
+            if (var_node) {
+                vardeclstmt_node->insert_son_node(var_node);
+            }
 
             // 递归调用，不断追加变量定义
             varDeclList(vardeclstmt_node);
@@ -326,7 +371,7 @@ static void varDeclList(ast_node * vardeclstmt_node)
 
 ///
 /// @brief 局部变量的识别，其文法为：
-/// varDecl : T_INT T_ID varDeclList
+/// varDecl : T_INT T_ID (T_ASSIGN Expression)? varDeclList
 ///
 /// @return ast_node* 局部变量声明节点
 ///
@@ -343,12 +388,23 @@ static ast_node * varDecl()
         // 检测是否是标识符
         if (F(T_ID)) {
 
-            // 创建变量声明语句，并加入第一个变量
-            ast_node * stmt_node = create_var_decl_stmt_node(type, rd_lval.var_id);
+            // 获取变量ID
+            var_id_attr id = rd_lval.var_id;
 
             // 跳过标识符记号，指向下一个Token
             advance();
 
+            // 创建变量声明语句节点
+            ast_node * stmt_node = create_contain_node(ast_operator_type::AST_OP_DECL_STMT);
+            stmt_node->type = typeAttr2Type(type);
+
+            // 处理第一个变量（可能有初始化）
+            ast_node * first_var_node = processVarDef(type, id);
+            if (first_var_node) {
+                stmt_node->insert_son_node(first_var_node);
+            }
+
+            // 处理后续的变量声明
             varDeclList(stmt_node);
 
             return stmt_node;
@@ -547,10 +603,19 @@ static ast_node * idtail(type_attr & type, var_id_attr & id)
     }
 
     // 这里只能是变量定义
+    // 支持变量初始化：T_ID (T_ASSIGN Expression)?
 
-    // 根据第一个变量声明创建变量声明语句节点并加入其中
-    ast_node * stmt_node = create_var_decl_stmt_node(type, id);
+    // 创建变量声明语句节点
+    ast_node * stmt_node = create_contain_node(ast_operator_type::AST_OP_DECL_STMT);
+    stmt_node->type = typeAttr2Type(type);
 
+    // 处理第一个变量（可能有初始化）
+    ast_node * first_var_node = processVarDef(type, id);
+    if (first_var_node) {
+        stmt_node->insert_son_node(first_var_node);
+    }
+
+    // 处理后续的变量声明
     varDeclList(stmt_node);
 
     return stmt_node;

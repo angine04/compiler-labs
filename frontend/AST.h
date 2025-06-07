@@ -306,3 +306,19 @@ ast_node * create_var_decl_stmt_node(type_attr & type, var_id_attr & id);
 /// @return ast_node* 变量声明语句节点
 ///
 ast_node * add_var_decl_node(ast_node * stmt_node, var_id_attr & id);
+
+///
+/// @brief 创建变量声明节点
+/// @param type 变量类型
+/// @param id 变量标识符
+/// @return ast_node* 变量声明节点
+///
+ast_node * createVarDeclNode(Type * type, var_id_attr & id);
+
+///
+/// @brief 创建变量声明节点
+/// @param type 变量类型
+/// @param id 变量标识符
+/// @return ast_node* 变量声明节点
+///
+ast_node * createVarDeclNode(type_attr & type, var_id_attr & id);

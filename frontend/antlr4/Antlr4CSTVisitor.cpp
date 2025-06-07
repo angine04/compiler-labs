@@ -387,14 +387,21 @@ std::any MiniCCSTVisitor::visitVarDecl(MiniCParser::VarDeclContext * ctx)
     type_attr typeAttr = std::any_cast<type_attr>(visitBasicType(ctx->basicType()));
 
     for (auto & varCtx: ctx->varDef()) {
-        // 变量名节点
-        ast_node * id_node = std::any_cast<ast_node *>(visitVarDef(varCtx));
+        // 变量定义节点（可能是ID节点或初始化节点）
+        ast_node * var_node = std::any_cast<ast_node *>(visitVarDef(varCtx));
 
         // 创建类型节点
         ast_node * type_node = create_type_node(typeAttr);
 
-        // 创建变量定义节点
-        ast_node * decl_node = ast_node::New(ast_operator_type::AST_OP_VAR_DECL, type_node, id_node, nullptr);
+        ast_node * decl_node;
+        if (var_node->node_type == ast_operator_type::AST_OP_VAR_INIT) {
+            // 初始化节点，直接使用并设置类型
+            decl_node = var_node;
+            decl_node->type = type_node->type;
+        } else {
+            // 普通ID节点，创建变量声明节点
+            decl_node = ast_node::New(ast_operator_type::AST_OP_VAR_DECL, type_node, var_node, nullptr);
+        }
 
         // 插入到变量声明语句
         (void) stmt_node->insert_son_node(decl_node);
@@ -405,14 +412,27 @@ std::any MiniCCSTVisitor::visitVarDecl(MiniCParser::VarDeclContext * ctx)
 
 std::any MiniCCSTVisitor::visitVarDef(MiniCParser::VarDefContext * ctx)
 {
-    // varDef: T_ID;
+    // varDef: T_ID (T_ASSIGN expr)?;
 
     auto varId = ctx->T_ID()->getText();
 
     // 获取行号
     int64_t lineNo = (int64_t) ctx->T_ID()->getSymbol()->getLine();
 
-    return ast_node::New(varId, lineNo);
+    // 检查是否有初始化表达式
+    if (ctx->expr()) {
+        // 有初始化值，创建变量ID节点
+        ast_node * id_node = ast_node::New(varId, lineNo);
+
+        // 访问初始化表达式
+        ast_node * expr_node = std::any_cast<ast_node *>(visitExpr(ctx->expr()));
+
+        // 创建初始化节点
+        return ast_node::New(ast_operator_type::AST_OP_VAR_INIT, id_node, expr_node, nullptr);
+    } else {
+        // 没有初始化值，返回普通的ID节点
+        return ast_node::New(varId, lineNo);
+    }
 }
 
 std::any MiniCCSTVisitor::visitBasicType(MiniCParser::BasicTypeContext * ctx)
