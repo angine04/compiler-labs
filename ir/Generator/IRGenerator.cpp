@@ -36,6 +36,8 @@
 #include "GotoInstruction.h"
 #include "IntegerType.h"
 #include "BranchInstruction.h"
+#include "ArrayType.h"
+#include "PointerType.h"
 
 /// @brief 构造函数
 /// @param _root AST的根
@@ -81,6 +83,11 @@ IRGenerator::IRGenerator(ast_node * _root, Module * _module) : root(_root), modu
     ast2ir_handlers[ast_operator_type::AST_OP_DECL_STMT] = &IRGenerator::ir_declare_statment;
     ast2ir_handlers[ast_operator_type::AST_OP_VAR_DECL] = &IRGenerator::ir_variable_declare;
     ast2ir_handlers[ast_operator_type::AST_OP_VAR_INIT] = &IRGenerator::ir_variable_initialize;
+
+    /* 数组相关 */
+    ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_DECL] = &IRGenerator::ir_array_declare;
+    ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_REF] = &IRGenerator::ir_array_ref;
+    ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_DIM] = &IRGenerator::ir_array_dim;
 
     /* 语句块 */
     ast2ir_handlers[ast_operator_type::AST_OP_BLOCK] = &IRGenerator::ir_block;
@@ -665,10 +672,14 @@ bool IRGenerator::ir_declare_statment(ast_node * node)
     for (auto & child: node->sons) {
 
         // 根据子节点类型处理变量声明或初始化
+        printf("[DEBUG] ir_declare_statment: Processing child node type: %d\n", (int) child->node_type);
         if (child->node_type == ast_operator_type::AST_OP_VAR_DECL) {
             result = ir_variable_declare(child);
         } else if (child->node_type == ast_operator_type::AST_OP_VAR_INIT) {
             result = ir_variable_initialize(child);
+        } else if (child->node_type == ast_operator_type::AST_OP_ARRAY_DECL) {
+            printf("[DEBUG] ir_declare_statment: Calling ir_array_declare\n");
+            result = ir_array_declare(child);
         } else {
             printf("[ERROR] ir_declare_statment: Unknown child node type: %d\n", (int) child->node_type);
             result = false;
@@ -1784,4 +1795,227 @@ bool IRGenerator::ir_variable_initialize(ast_node * node)
            var_type->toString().c_str());
 
     return true;
+}
+
+/// @brief 数组声明节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_array_declare(ast_node * node)
+{
+    // AST_OP_ARRAY_DECL节点有两个孩子：
+    // 第一个孩子：变量ID节点
+    // 第二个孩子：数组维度节点
+
+    if (node->sons.size() != 2) {
+        printf("[ERROR] ir_array_declare: Expected 2 children but got %zu\n", node->sons.size());
+        return false;
+    }
+
+    ast_node * id_node = node->sons[0];
+    ast_node * dim_node = node->sons[1];
+
+    // 从维度节点中提取维度值
+    std::vector<int32_t> dimensions;
+    if (!extractDimensions(dim_node, dimensions)) {
+        printf("[ERROR] ir_array_declare: Failed to extract array dimensions\n");
+        return false;
+    }
+
+    // 创建数组类型（元素类型默认为int32）
+    Type * elementType = IntegerType::getTypeInt();
+    ArrayType * arrayType = ArrayType::getType(elementType, dimensions);
+
+    // 判断是否为函数形参
+    Function * currentFunc = module->getCurrentFunction();
+    if (currentFunc && isInFormalParams(node)) {
+        // 函数形参数组，第一维设为0，类型为指针
+        std::vector<int32_t> paramDims = dimensions;
+        paramDims[0] = 0; // 第一维设为0表示指针
+        ArrayType * paramArrayType = ArrayType::getType(elementType, paramDims);
+
+        // 实际分配的是指针类型
+        PointerType * ptrType = PointerType::getType(elementType);
+        Value * varValue = module->newVarValue(ptrType, id_node->name);
+
+        if (!varValue) {
+            printf("[ERROR] ir_array_declare: Failed to create array parameter %s\n", id_node->name.c_str());
+            return false;
+        }
+
+        node->val = varValue;
+        node->type = paramArrayType; // AST节点类型为数组类型
+
+    } else {
+        // 局部或全局数组变量
+        Value * varValue = module->newVarValue(arrayType, id_node->name);
+        if (!varValue) {
+            printf("[ERROR] ir_array_declare: Failed to create array variable %s\n", id_node->name.c_str());
+            return false;
+        }
+
+        node->val = varValue;
+        node->type = arrayType;
+    }
+
+    printf("[DEBUG] ir_array_declare: Declared array %s with type %s\n",
+           id_node->name.c_str(),
+           node->type->toString().c_str());
+
+    return true;
+}
+
+/// @brief 数组元素访问节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_array_ref(ast_node * node)
+{
+    // AST_OP_ARRAY_REF节点有两个孩子：
+    // 第一个孩子：数组变量ID节点
+    // 第二个孩子：下标表达式节点
+
+    if (node->sons.size() != 2) {
+        printf("[ERROR] ir_array_ref: Expected 2 children but got %zu\n", node->sons.size());
+        return false;
+    }
+
+    ast_node * id_node = node->sons[0];
+    ast_node * index_node = node->sons[1];
+
+    // 查找数组变量
+    Value * arrayVar = module->findVarValue(id_node->name);
+    if (!arrayVar) {
+        printf("[ERROR] ir_array_ref: Array variable %s not found\n", id_node->name.c_str());
+        return false;
+    }
+
+    // 处理下标表达式
+    ast_node * visited_index = ir_visit_ast_node(index_node);
+    if (!visited_index) {
+        printf("[ERROR] ir_array_ref: Failed to visit array index\n");
+        return false;
+    }
+
+    // 添加下标计算的指令
+    node->blockInsts.addInst(visited_index->blockInsts);
+
+    // 计算数组元素地址
+    Function * currentFunc = module->getCurrentFunction();
+    Type * arrayType = arrayVar->getType();
+
+    if (arrayType->isArrayType()) {
+        // 局部数组变量
+        ArrayType * arrType = dynamic_cast<ArrayType *>(arrayType);
+        Type * elementType = arrType->getElementType();
+
+        // 简化实现：一维数组访问
+        if (index_node->node_type != ast_operator_type::AST_OP_ARRAY_DIM) {
+            // 单个下标表达式
+            Value * elementSize = module->newConstInt(elementType->getSize());
+
+            BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
+                                                                IRInstOperator::IRINST_OP_MUL_I,
+                                                                visited_index->val,
+                                                                elementSize,
+                                                                IntegerType::getTypeInt());
+            node->blockInsts.addInst(mulInst);
+
+            // 创建指针类型的临时变量来存储元素地址
+            PointerType * ptrType = PointerType::getType(elementType);
+
+            // 生成地址计算指令：elemPtr = arrayVar + offset
+            BinaryInstruction * addrInst =
+                new BinaryInstruction(currentFunc, IRInstOperator::IRINST_OP_ADD_I, arrayVar, mulInst, ptrType);
+            node->blockInsts.addInst(addrInst);
+            node->val = addrInst;
+        }
+
+    } else if (arrayType->isPointerType()) {
+        // 函数形参数组（指针类型）
+        const PointerType * ptrType = dynamic_cast<const PointerType *>(arrayType);
+        const Type * elementType = ptrType->getPointeeType();
+
+        // 对于形参数组，需要计算元素大小的偏移
+        Value * elementSize = module->newConstInt(elementType->getSize());
+
+        // 计算字节偏移：offset = index * elementSize
+        BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
+                                                            IRInstOperator::IRINST_OP_MUL_I,
+                                                            visited_index->val,
+                                                            elementSize,
+                                                            IntegerType::getTypeInt());
+        node->blockInsts.addInst(mulInst);
+
+        // 生成地址计算指令：elemPtr = arrayVar + byteOffset
+        PointerType * nonConstPtrType = PointerType::getType(const_cast<Type *>(elementType));
+        BinaryInstruction * addrInst =
+            new BinaryInstruction(currentFunc, IRInstOperator::IRINST_OP_ADD_I, arrayVar, mulInst, nonConstPtrType);
+        node->blockInsts.addInst(addrInst);
+        node->val = addrInst;
+
+    } else {
+        printf("[ERROR] ir_array_ref: Variable %s is not an array type\n", id_node->name.c_str());
+        return false;
+    }
+
+    printf("[DEBUG] ir_array_ref: Generated array reference for %s\n", id_node->name.c_str());
+    return true;
+}
+
+/// @brief 数组维度节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_array_dim(ast_node * node)
+{
+    // 数组维度节点包含多个表达式作为孩子
+    // 每个孩子都是一个维度的大小表达式
+
+    for (auto son: node->sons) {
+        ast_node * visited = ir_visit_ast_node(son);
+        if (!visited) {
+            printf("[ERROR] ir_array_dim: Failed to visit dimension expression\n");
+            return false;
+        }
+
+        // 添加维度表达式的指令
+        node->blockInsts.addInst(visited->blockInsts);
+    }
+
+    // 维度节点本身不需要产生值
+    node->val = nullptr;
+    return true;
+}
+
+/// @brief 从维度节点中提取常量维度值
+/// @param dim_node 维度节点
+/// @param dimensions 输出的维度数组
+/// @return 是否成功
+bool IRGenerator::extractDimensions(ast_node * dim_node, std::vector<int32_t> & dimensions)
+{
+    for (auto son: dim_node->sons) {
+        if (son->node_type == ast_operator_type::AST_OP_LEAF_LITERAL_UINT) {
+            dimensions.push_back(static_cast<int32_t>(son->integer_val));
+        } else {
+            // 暂不支持非常量维度
+            printf("[ERROR] extractDimensions: Non-constant array dimensions not supported\n");
+            return false;
+        }
+    }
+    return true;
+}
+
+/// @brief 检查节点是否在函数形参中
+/// @param node AST节点
+/// @return 是否在形参中
+bool IRGenerator::isInFormalParams(ast_node * node)
+{
+    // 简单的实现：检查父节点类型
+    ast_node * parent = node->parent;
+    while (parent) {
+        if (parent->node_type == ast_operator_type::AST_OP_FUNC_FORMAL_PARAM ||
+            parent->node_type == ast_operator_type::AST_OP_FUNC_FORMAL_PARAMS) {
+            return true;
+        }
+        parent = parent->parent;
+    }
+    return false;
 }

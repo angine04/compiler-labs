@@ -115,6 +115,12 @@ enum class ast_operator_type : int {
     AST_OP_CONTINUE, // continue statement
     // End of break and continue types
 
+    // AST node types for arrays
+    AST_OP_ARRAY_DECL, // 数组声明
+    AST_OP_ARRAY_REF,  // 数组元素访问
+    AST_OP_ARRAY_DIM,  // 数组维度
+    // End of array types
+
     // TODO 抽象语法树其它内部节点运算符追加
 
     /// @brief 最大标识符，表示非法运算符

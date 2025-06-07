@@ -117,6 +117,17 @@ public:
     }
 
     ///
+    /// @brief 获取指针类型（非const版本）
+    /// @param pointee
+    /// @return PointerType*
+    ///
+    static PointerType * getType(Type * pointee)
+    {
+        static StorageSet<PointerType, PointerTypeHasher, PointerTypeEqual> storageSet;
+        return const_cast<PointerType *>(storageSet.get(pointee));
+    }
+
+    ///
     /// @brief 获取类型的IR标识符
     /// @return std::string IR标识符void
     ///

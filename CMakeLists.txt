@@ -180,6 +180,9 @@ set(IR_SRCS
 	ir/Types/LabelType.cpp
 	ir/Types/IntegerType.h
 	ir/Types/IntegerType.cpp
+	ir/Types/ArrayType.h
+	ir/Types/ArrayType.cpp
+	ir/Types/PointerType.h
 	ir/Values/ConstInt.h
 	ir/Values/FormalParam.h
 	ir/Values/GlobalVariable.h

@@ -18,6 +18,7 @@
 #include "ScopeStack.h"
 #include "Common.h"
 #include "VoidType.h"
+#include "PointerType.h"
 
 Module::Module(std::string _name) : name(_name)
 {
@@ -32,10 +33,11 @@ Module::Module(std::string _name) : name(_name)
     (void) newFunction("getint", IntegerType::getTypeInt(), {}, true);
     (void) newFunction("putch", VoidType::getType(), {new FormalParam{IntegerType::getTypeInt(), "c"}}, true);
     (void) newFunction("getch", IntegerType::getTypeInt(), {}, true);
-    // 注意：getarray和putarray需要数组支持，暂时不添加
-    // (void) newFunction("getarray", IntegerType::getTypeInt(), {new FormalParam{ArrayType::getType(), "a"}}, true);
-    // (void) newFunction("putarray", VoidType::getType(), {new FormalParam{IntegerType::getTypeInt(), "n"}, new
-    // FormalParam{ArrayType::getType(), "d"}}, true);
+
+    // TODO: 数组相关内置函数需要解决PointerType的const问题后再添加
+    // 暂时注释掉，稍后实现
+    // (void) newFunction("getarray", IntegerType::getTypeInt(), {...}, true);
+    // (void) newFunction("putarray", VoidType::getType(), {...}, true);
 }
 
 /// @brief 进入作用域，如进入函数体块、语句块等

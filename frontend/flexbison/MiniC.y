@@ -46,6 +46,7 @@ void yyerror(char * msg);
 
 // 分隔符 一词一类 不需要赋予语义属性
 %token T_SEMICOLON T_L_PAREN T_R_PAREN T_L_BRACE T_R_BRACE
+%token T_L_BRACKET T_R_BRACKET
 %token T_COMMA
 
 // 运算符
@@ -94,6 +95,7 @@ void yyerror(char * msg);
 %type <node> MulExp /* 新增非终结符 MulExp */
 %type <node> RealParamList
 %type <node> FormalParamList FormalParam
+%type <node> ArrayDimensions ArrayDimension
 %type <type> BasicType
 
 // New non-terminals for control flow and new expression types
@@ -294,6 +296,18 @@ VarDef : T_ID {
 		
 		// 创建初始化节点，包含变量ID和初值表达式
 		$$ = create_contain_node(ast_operator_type::AST_OP_VAR_INIT, id_node, $3);
+	}
+	| T_ID ArrayDimensions {
+		// 数组声明（无初值）
+		
+		// 创建变量ID节点
+		ast_node * id_node = ast_node::New(var_id_attr{$1.id, $1.lineno});
+		
+		// 释放字符串空间
+		free($1.id);
+		
+		// 创建数组声明节点，包含变量ID和维度信息
+		$$ = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node, $2);
 	}
 	;
 
@@ -496,7 +510,7 @@ RealParamList : Expr {
 	}
 	;
 
-// 左值表达式，目前只支持变量名，实际上还有下标变量
+// 左值表达式，支持变量名和数组元素访问
 LVal : T_ID {
 		// 变量名终结符
 
@@ -505,6 +519,18 @@ LVal : T_ID {
 
 		// 对于字符型字面量的字符串空间需要释放，因词法用到了strdup进行了字符串复制
 		free($1.id);
+	}
+	| T_ID ArrayDimensions {
+		// 数组元素访问
+		
+		// 创建变量名节点
+		ast_node * id_node = ast_node::New($1);
+		
+		// 释放字符串空间
+		free($1.id);
+		
+		// 创建数组访问节点，包含变量名和下标表达式
+		$$ = create_contain_node(ast_operator_type::AST_OP_ARRAY_REF, id_node, $2);
 	}
 	;
 
@@ -569,6 +595,42 @@ FormalParam: BasicType T_ID {
 		
 		// 创建形参节点
 		$$ = create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAM, type_node, id_node);
+	}
+	| BasicType T_ID ArrayDimensions {
+		// 数组形参
+		
+		// 创建类型节点
+		ast_node * type_node = create_type_node($1);
+		
+		// 创建变量ID节点
+		ast_node * id_node = ast_node::New($2);
+		
+		// 释放字符串空间
+		free($2.id);
+		
+		// 创建数组声明节点
+		ast_node * array_decl = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node, $3);
+		
+		// 创建形参节点
+		$$ = create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAM, type_node, array_decl);
+	}
+	;
+
+// 数组维度列表
+ArrayDimensions: ArrayDimension {
+		// 创建数组维度列表节点
+		$$ = create_contain_node(ast_operator_type::AST_OP_ARRAY_DIM, $1);
+	}
+	| ArrayDimensions ArrayDimension {
+		// 添加维度到列表
+		$$ = $1->insert_son_node($2);
+	}
+	;
+
+// 单个数组维度
+ArrayDimension: T_L_BRACKET Expr T_R_BRACKET {
+		// 数组维度，包含表达式
+		$$ = $2;
 	}
 	;
 

@@ -143,6 +143,21 @@ protected:
     /// @return 翻译是否成功，true：成功，false：失败
     bool ir_variable_initialize(ast_node * node);
 
+    /// @brief 数组声明节点翻译成线性中间IR
+    /// @param node AST节点
+    /// @return 翻译是否成功，true：成功，false：失败
+    bool ir_array_declare(ast_node * node);
+
+    /// @brief 数组元素访问节点翻译成线性中间IR
+    /// @param node AST节点
+    /// @return 翻译是否成功，true：成功，false：失败
+    bool ir_array_ref(ast_node * node);
+
+    /// @brief 数组维度节点翻译成线性中间IR
+    /// @param node AST节点
+    /// @return 翻译是否成功，true：成功，false：失败
+    bool ir_array_dim(ast_node * node);
+
     // New IR generation functions for relational operators
     bool ir_lt(ast_node * node); // For AST_OP_LT
     bool ir_le(ast_node * node); // For AST_OP_LE
@@ -197,4 +212,15 @@ private:
                                        LabelInstruction * true_target,
                                        LabelInstruction * false_target,
                                        InterCode & instruction_list);
+
+    /// @brief 从维度节点中提取常量维度值
+    /// @param dim_node 维度节点
+    /// @param dimensions 输出的维度数组
+    /// @return 是否成功
+    bool extractDimensions(ast_node * dim_node, std::vector<int32_t> & dimensions);
+
+    /// @brief 检查节点是否在函数形参中
+    /// @param node AST节点
+    /// @return 是否在形参中
+    bool isInFormalParams(ast_node * node);
 };
