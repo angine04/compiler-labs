@@ -27,9 +27,15 @@ Module::Module(std::string _name) : name(_name)
     // 确保全局变量作用域入栈，这样全局变量才可以加入
     scopeStack->enterScope();
 
-    // 加入内置函数putint
-    (void) newFunction("putint", VoidType::getType(), {new FormalParam{IntegerType::getTypeInt(), ""}}, true);
+    // 加入内置函数
+    (void) newFunction("putint", VoidType::getType(), {new FormalParam{IntegerType::getTypeInt(), "k"}}, true);
     (void) newFunction("getint", IntegerType::getTypeInt(), {}, true);
+    (void) newFunction("putch", VoidType::getType(), {new FormalParam{IntegerType::getTypeInt(), "c"}}, true);
+    (void) newFunction("getch", IntegerType::getTypeInt(), {}, true);
+    // 注意：getarray和putarray需要数组支持，暂时不添加
+    // (void) newFunction("getarray", IntegerType::getTypeInt(), {new FormalParam{ArrayType::getType(), "a"}}, true);
+    // (void) newFunction("putarray", VoidType::getType(), {new FormalParam{IntegerType::getTypeInt(), "n"}, new
+    // FormalParam{ArrayType::getType(), "d"}}, true);
 }
 
 /// @brief 进入作用域，如进入函数体块、语句块等

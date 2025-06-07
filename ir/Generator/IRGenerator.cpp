@@ -199,8 +199,22 @@ bool IRGenerator::ir_function_define(ast_node * node)
     ast_node * param_node = node->sons[2];
     ast_node * block_node = node->sons[3];
 
+    // 先处理形参，收集形参信息
+    std::vector<FormalParam *> formalParams;
+    if (param_node) {
+        for (auto paramNode: param_node->sons) {
+            // 形参节点包含两个孩子：类型节点和名字节点
+            ast_node * typeNode = paramNode->sons[0];
+            ast_node * nameNode = paramNode->sons[1];
+
+            // 创建形参对象
+            FormalParam * formalParam = new FormalParam(typeNode->type, nameNode->name);
+            formalParams.push_back(formalParam);
+        }
+    }
+
     // 创建一个新的函数定义
-    Function * newFunc = module->newFunction(name_node->name, type_node->type);
+    Function * newFunc = module->newFunction(name_node->name, type_node->type, formalParams);
     if (!newFunc) {
         // 新定义的函数已经存在，则失败返回。
         // TODO 自行追加语义错误处理
@@ -242,10 +256,15 @@ bool IRGenerator::ir_function_define(ast_node * node)
 
         // 保存函数返回值变量到函数信息中，在return语句翻译时需要设置值到这个变量中
         retValue = static_cast<LocalVariable *>(module->newVarValue(type_node->type));
+
+        // 为main函数初始化返回值为0，避免随机值问题
+        if (name_node->name == "main") {
+            ConstInt * zeroConst = module->newConstInt(0);
+            MoveInstruction * initInst = new MoveInstruction(newFunc, retValue, zeroConst);
+            node->blockInsts.addInst(initInst);
+        }
     }
     newFunc->setReturnValue(retValue);
-
-    // 这里最好设置返回值变量的初值为0，以便在没有返回值时能够返回0
 
     // 函数内已经进入作用域，内部不再需要做变量的作用域管理
     block_node->needScope = false;
@@ -286,12 +305,42 @@ bool IRGenerator::ir_function_define(ast_node * node)
 /// @return 翻译是否成功，true：成功，false：失败
 bool IRGenerator::ir_function_formal_params(ast_node * node)
 {
-    // TODO 目前形参还不支持，直接返回true
+    // 如果没有形参节点，直接返回true
+    if (!node) {
+        return true;
+    }
 
-    // 每个形参变量都创建对应的临时变量，用于表达实参转递的值
-    // 而真实的形参则创建函数内的局部变量。
-    // 然后产生赋值指令，用于把表达实参值的临时变量拷贝到形参局部变量上。
-    // 请注意这些指令要放在Entry指令后面，因此处理的先后上要注意。
+    // 获取当前函数
+    Function * currentFunc = module->getCurrentFunction();
+    if (!currentFunc) {
+        return false;
+    }
+
+    // 获取函数的形参列表（已经在函数创建时添加）
+    std::vector<FormalParam *> & formalParams = currentFunc->getParams();
+
+    // 遍历AST中的形参节点，为每个形参创建对应的局部变量
+    for (size_t i = 0; i < node->sons.size() && i < formalParams.size(); ++i) {
+        ast_node * paramNode = node->sons[i];
+
+        // 形参节点包含两个孩子：类型节点和名字节点
+        ast_node * typeNode = paramNode->sons[0];
+        ast_node * nameNode = paramNode->sons[1];
+
+        // 获取对应的形参对象
+        FormalParam * formalParam = formalParams[i];
+
+        // 为形参创建局部变量，用于在函数内部使用
+        LocalVariable * localVar = static_cast<LocalVariable *>(module->newVarValue(typeNode->type, nameNode->name));
+        if (!localVar) {
+            return false;
+        }
+
+        // 生成赋值指令，将形参值赋给局部变量
+        // 这里使用Move指令将形参值复制到局部变量
+        MoveInstruction * moveInst = new MoveInstruction(currentFunc, localVar, formalParam);
+        node->blockInsts.addInst(moveInst);
+    }
 
     return true;
 }

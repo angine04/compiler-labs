@@ -39,7 +39,7 @@ void yyerror(char * msg);
 // %token或%type之后的<>括住的内容成为文法符号的属性，定义在前面的%union中的成员名字。
 %token <integer_num> T_DIGIT
 %token <var_id> T_ID
-%token <type> T_INT
+%token <type> T_INT T_VOID
 
 // 关键或保留字 一词一类 不需要赋予语义属性
 %token T_RETURN

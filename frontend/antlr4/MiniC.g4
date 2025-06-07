@@ -13,8 +13,14 @@ grammar MiniC;
 // 源文件编译单元定义
 compileUnit: (funcDef | varDecl)* EOF;
 
-// 函数定义，目前不支持形参，也不支持返回void类型等
-funcDef: T_INT T_ID T_L_PAREN T_R_PAREN block;
+// 函数定义，支持形参和void返回类型
+funcDef: (T_INT | T_VOID) T_ID T_L_PAREN formalParamList? T_R_PAREN block;
+
+// 形参列表
+formalParamList: formalParam (T_COMMA formalParam)*;
+
+// 形参定义
+formalParam: basicType T_ID;
 
 // 语句块看用作函数体，这里允许多个语句，并且不含任何语句
 block: T_L_BRACE blockItemList? T_R_BRACE;
@@ -94,7 +100,7 @@ T_MOD: '%';
 // 要注意关键字同样也属于T_ID，因此必须放在T_ID的前面，否则会识别成T_ID
 T_RETURN: 'return';
 T_INT: 'int';
-// T_VOID: 'void'; // MiniC current spec does not seem to use void for func return
+T_VOID: 'void';
 
 T_ID: [a-zA-Z_][a-zA-Z0-9_]*;
 
