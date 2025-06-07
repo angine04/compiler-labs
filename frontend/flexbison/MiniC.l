@@ -38,8 +38,8 @@
 /* 正规式定义 */
 %%
 
-"//"[^\n]*        { /* Eat up single-line comments */ }
-"/*"([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+"/" { /* Eat up multi-line comments */ }
+"//".*        { /* Eat up single-line comments, including Chinese characters */ }
+"/*"([^*]|[\r\n]|(\*+([^*/]|[\r\n])))*\*+"/" { /* Eat up multi-line comments, including Chinese characters */ }
 
 "("         { return T_L_PAREN; }
 ")"         { return T_R_PAREN; }

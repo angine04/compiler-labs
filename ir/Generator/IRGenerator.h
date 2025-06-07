@@ -138,6 +138,11 @@ protected:
     /// @return 翻译是否成功，true：成功，false：失败
     bool ir_variable_declare(ast_node * node);
 
+    /// @brief 变量初始化节点翻译成线性中间IR
+    /// @param node AST节点
+    /// @return 翻译是否成功，true：成功，false：失败
+    bool ir_variable_initialize(ast_node * node);
+
     // New IR generation functions for relational operators
     bool ir_lt(ast_node * node); // For AST_OP_LT
     bool ir_le(ast_node * node); // For AST_OP_LE

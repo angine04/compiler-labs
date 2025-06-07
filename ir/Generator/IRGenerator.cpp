@@ -80,6 +80,7 @@ IRGenerator::IRGenerator(ast_node * _root, Module * _module) : root(_root), modu
     /* 变量定义语句 */
     ast2ir_handlers[ast_operator_type::AST_OP_DECL_STMT] = &IRGenerator::ir_declare_statment;
     ast2ir_handlers[ast_operator_type::AST_OP_VAR_DECL] = &IRGenerator::ir_variable_declare;
+    ast2ir_handlers[ast_operator_type::AST_OP_VAR_INIT] = &IRGenerator::ir_variable_initialize;
 
     /* 语句块 */
     ast2ir_handlers[ast_operator_type::AST_OP_BLOCK] = &IRGenerator::ir_block;
@@ -663,11 +664,22 @@ bool IRGenerator::ir_declare_statment(ast_node * node)
 
     for (auto & child: node->sons) {
 
-        // 遍历每个变量声明
-        result = ir_variable_declare(child);
+        // 根据子节点类型处理变量声明或初始化
+        if (child->node_type == ast_operator_type::AST_OP_VAR_DECL) {
+            result = ir_variable_declare(child);
+        } else if (child->node_type == ast_operator_type::AST_OP_VAR_INIT) {
+            result = ir_variable_initialize(child);
+        } else {
+            printf("[ERROR] ir_declare_statment: Unknown child node type: %d\n", (int) child->node_type);
+            result = false;
+        }
+
         if (!result) {
             break;
         }
+
+        // 添加子节点的指令到当前节点
+        node->blockInsts.addInst(child->blockInsts);
     }
 
     return result;
@@ -1710,5 +1722,66 @@ bool IRGenerator::ir_logical_or(ast_node * node)
     node->val = nullptr;
     printf("[DEBUG] ir_logical_or: Exiting. node->val set to nullptr.\n");
     fflush(stdout);
+    return true;
+}
+
+/// @brief 变量初始化节点翻译成线性中间IR
+/// @param node AST节点，包含两个孩子：变量ID节点和初值表达式节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_variable_initialize(ast_node * node)
+{
+    // AST_OP_VAR_INIT节点有两个孩子：
+    // 第一个孩子：变量ID节点
+    // 第二个孩子：初值表达式节点
+
+    if (node->sons.size() != 2) {
+        printf("[ERROR] ir_variable_initialize: Expected 2 children but got %zu\n", node->sons.size());
+        return false;
+    }
+
+    ast_node * id_node = node->sons[0];
+    ast_node * init_expr_node = node->sons[1];
+
+    // 首先处理初值表达式
+    ast_node * visited_expr = ir_visit_ast_node(init_expr_node);
+    if (!visited_expr) {
+        printf("[ERROR] ir_variable_initialize: Failed to visit initialization expression\n");
+        return false;
+    }
+
+    // 检查表达式是否产生了值
+    if (!visited_expr->val) {
+        printf("[ERROR] ir_variable_initialize: Initialization expression did not produce a value\n");
+        return false;
+    }
+
+    // 添加表达式的指令
+    node->blockInsts.addInst(visited_expr->blockInsts);
+
+    // 创建变量（类型从表达式推断）
+    Type * var_type = visited_expr->val->getType();
+    if (!var_type) {
+        printf("[ERROR] ir_variable_initialize: Failed to get type from initialization expression\n");
+        return false;
+    }
+
+    Value * varValue = module->newVarValue(var_type, id_node->name);
+    if (!varValue) {
+        printf("[ERROR] ir_variable_initialize: Failed to create variable %s\n", id_node->name.c_str());
+        return false;
+    }
+
+    // 创建赋值指令，将初值赋给变量
+    Function * currentFunc = module->getCurrentFunction();
+    MoveInstruction * assignInst = new MoveInstruction(currentFunc, varValue, visited_expr->val);
+    node->blockInsts.addInst(assignInst);
+
+    // 变量初始化节点的值就是变量本身
+    node->val = varValue;
+
+    printf("[DEBUG] ir_variable_initialize: Initialized variable %s with type %s\n",
+           id_node->name.c_str(),
+           var_type->toString().c_str());
+
     return true;
 }

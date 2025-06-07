@@ -93,6 +93,7 @@ void yyerror(char * msg);
 %type <node> AddExp UnaryExp PrimaryExp
 %type <node> MulExp /* 新增非终结符 MulExp */
 %type <node> RealParamList
+%type <node> FormalParamList FormalParam
 %type <type> BasicType
 
 // New non-terminals for control flow and new expression types
@@ -154,6 +155,24 @@ FuncDef : BasicType T_ID T_L_PAREN T_R_PAREN Block  {
 		ast_node * formalParamsNode = nullptr;
 
 		// 创建函数定义的节点，孩子有类型，函数名，语句块和形参(实际上无)
+		// create_func_def函数内会释放funcId中指向的标识符空间，切记，之后不要再释放，之前一定要是通过strdup函数或者malloc分配的空间
+		$$ = create_func_def(funcReturnType, funcId, blockNode, formalParamsNode);
+	}
+	| BasicType T_ID T_L_PAREN FormalParamList T_R_PAREN Block  {
+
+		// 函数返回类型
+		type_attr funcReturnType = $1;
+
+		// 函数名
+		var_id_attr funcId = $2;
+
+		// 函数体节点即Block，即$6
+		ast_node * blockNode = $6;
+
+		// 形参结点
+		ast_node * formalParamsNode = $4;
+
+		// 创建函数定义的节点，孩子有类型，函数名，语句块和形参
 		// create_func_def函数内会释放funcId中指向的标识符空间，切记，之后不要再释放，之前一定要是通过strdup函数或者malloc分配的空间
 		$$ = create_func_def(funcReturnType, funcId, blockNode, formalParamsNode);
 	}
@@ -219,9 +238,17 @@ VarDeclExpr: BasicType VarDef {
 		// 创建类型节点
 		ast_node * type_node = create_type_node($1);
 
-		// 创建变量定义节点
-		ast_node * decl_node = create_contain_node(ast_operator_type::AST_OP_VAR_DECL, type_node, $2);
-		decl_node->type = type_node->type;
+		// 检查VarDef是否是初始化节点
+		ast_node * decl_node;
+		if ($2->node_type == ast_operator_type::AST_OP_VAR_INIT) {
+			// 如果是初始化节点，直接使用
+			decl_node = $2;
+			decl_node->type = type_node->type;
+		} else {
+			// 普通变量声明
+			decl_node = create_contain_node(ast_operator_type::AST_OP_VAR_DECL, type_node, $2);
+			decl_node->type = type_node->type;
+		}
 
 		// 创建变量声明语句，并加入第一个变量
 		$$ = create_var_decl_stmt_node(decl_node);
@@ -231,27 +258,50 @@ VarDeclExpr: BasicType VarDef {
 		// 创建类型节点，这里从VarDeclExpr获取类型，前面已经设置
 		ast_node * type_node = ast_node::New($1->type);
 
-		// 创建变量定义节点
-		ast_node * decl_node = create_contain_node(ast_operator_type::AST_OP_VAR_DECL, type_node, $3);
+		// 检查VarDef是否是初始化节点
+		ast_node * decl_node;
+		if ($3->node_type == ast_operator_type::AST_OP_VAR_INIT) {
+			// 如果是初始化节点，需要正确设置类型
+			decl_node = $3;
+			// 设置变量类型（从初值表达式获取）
+		} else {
+			// 普通变量声明
+			decl_node = create_contain_node(ast_operator_type::AST_OP_VAR_DECL, type_node, $3);
+		}
 
 		// 插入到变量声明语句
 		$$ = $1->insert_son_node(decl_node);
 	}
 	;
 
-// 变量定义包含变量名，实际上还有初值，这里没有实现。
+// 变量定义包含变量名，支持初值
 VarDef : T_ID {
-		// 变量ID
+		// 变量ID（无初值）
 
 		$$ = ast_node::New(var_id_attr{$1.id, $1.lineno});
 
 		// 对于字符型字面量的字符串空间需要释放，因词法用到了strdup进行了字符串复制
 		free($1.id);
 	}
+	| T_ID T_ASSIGN Expr {
+		// 变量ID（有初值）
+		
+		// 创建变量ID节点
+		ast_node * id_node = ast_node::New(var_id_attr{$1.id, $1.lineno});
+		
+		// 释放字符串空间
+		free($1.id);
+		
+		// 创建初始化节点，包含变量ID和初值表达式
+		$$ = create_contain_node(ast_operator_type::AST_OP_VAR_INIT, id_node, $3);
+	}
 	;
 
-// 基本类型，目前只支持整型
+// 基本类型，支持整型和void类型
 BasicType: T_INT {
+		$$ = $1;
+	}
+	| T_VOID {
 		$$ = $1;
 	}
 	;
@@ -494,6 +544,33 @@ ContinueStmt : T_CONTINUE T_SEMICOLON
                  $$ = create_contain_node(ast_operator_type::AST_OP_CONTINUE);
                }
                ;
+
+// 形参列表
+FormalParamList: FormalParam {
+		// 创建形参列表节点
+		$$ = create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAMS, $1);
+	}
+	| FormalParamList T_COMMA FormalParam {
+		// 添加形参到列表
+		$$ = $1->insert_son_node($3);
+	}
+	;
+
+// 单个形参
+FormalParam: BasicType T_ID {
+		// 创建类型节点
+		ast_node * type_node = create_type_node($1);
+		
+		// 创建变量ID节点
+		ast_node * id_node = ast_node::New($2);
+		
+		// 释放字符串空间
+		free($2.id);
+		
+		// 创建形参节点
+		$$ = create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAM, type_node, id_node);
+	}
+	;
 
 %%
 
