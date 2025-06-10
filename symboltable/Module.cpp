@@ -34,10 +34,16 @@ Module::Module(std::string _name) : name(_name)
     (void) newFunction("putch", VoidType::getType(), {new FormalParam{IntegerType::getTypeInt(), "c"}}, true);
     (void) newFunction("getch", IntegerType::getTypeInt(), {}, true);
 
-    // TODO: 数组相关内置函数需要解决PointerType的const问题后再添加
-    // 暂时注释掉，稍后实现
-    // (void) newFunction("getarray", IntegerType::getTypeInt(), {...}, true);
-    // (void) newFunction("putarray", VoidType::getType(), {...}, true);
+    // 数组相关内置函数
+    // getarray(int a[]) - 从输入读取数组元素，返回数组长度
+    PointerType * intArrayType = PointerType::getType(IntegerType::getTypeInt());
+    (void) newFunction("getarray", IntegerType::getTypeInt(), {new FormalParam{intArrayType, "a"}}, true);
+
+    // putarray(int a[], int n) - 输出数组的前n个元素
+    (void) newFunction("putarray",
+                       VoidType::getType(),
+                       {new FormalParam{intArrayType, "a"}, new FormalParam{IntegerType::getTypeInt(), "n"}},
+                       true);
 }
 
 /// @brief 进入作用域，如进入函数体块、语句块等

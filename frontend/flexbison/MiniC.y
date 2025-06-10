@@ -240,10 +240,14 @@ VarDeclExpr: BasicType VarDef {
 		// 创建类型节点
 		ast_node * type_node = create_type_node($1);
 
-		// 检查VarDef是否是初始化节点
+		// 检查VarDef是否是初始化节点或数组声明节点
 		ast_node * decl_node;
 		if ($2->node_type == ast_operator_type::AST_OP_VAR_INIT) {
 			// 如果是初始化节点，直接使用
+			decl_node = $2;
+			decl_node->type = type_node->type;
+		} else if ($2->node_type == ast_operator_type::AST_OP_ARRAY_DECL) {
+			// 如果是数组声明节点，直接使用
 			decl_node = $2;
 			decl_node->type = type_node->type;
 		} else {
@@ -260,12 +264,16 @@ VarDeclExpr: BasicType VarDef {
 		// 创建类型节点，这里从VarDeclExpr获取类型，前面已经设置
 		ast_node * type_node = ast_node::New($1->type);
 
-		// 检查VarDef是否是初始化节点
+		// 检查VarDef是否是初始化节点或数组声明节点
 		ast_node * decl_node;
 		if ($3->node_type == ast_operator_type::AST_OP_VAR_INIT) {
 			// 如果是初始化节点，需要正确设置类型
 			decl_node = $3;
 			// 设置变量类型（从初值表达式获取）
+		} else if ($3->node_type == ast_operator_type::AST_OP_ARRAY_DECL) {
+			// 如果是数组声明节点，直接使用
+			decl_node = $3;
+			decl_node->type = type_node->type;
 		} else {
 			// 普通变量声明
 			decl_node = create_contain_node(ast_operator_type::AST_OP_VAR_DECL, type_node, $3);

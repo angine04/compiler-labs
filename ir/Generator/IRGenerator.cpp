@@ -331,23 +331,46 @@ bool IRGenerator::ir_function_formal_params(ast_node * node)
     for (size_t i = 0; i < node->sons.size() && i < formalParams.size(); ++i) {
         ast_node * paramNode = node->sons[i];
 
-        // 形参节点包含两个孩子：类型节点和名字节点
+        // 形参节点包含两个孩子：类型节点和名字节点（或数组声明节点）
         ast_node * typeNode = paramNode->sons[0];
-        ast_node * nameNode = paramNode->sons[1];
+        ast_node * secondNode = paramNode->sons[1];
 
         // 获取对应的形参对象
         FormalParam * formalParam = formalParams[i];
 
-        // 为形参创建局部变量，用于在函数内部使用
-        LocalVariable * localVar = static_cast<LocalVariable *>(module->newVarValue(typeNode->type, nameNode->name));
-        if (!localVar) {
-            return false;
-        }
+        // 检查第二个孩子是否为数组声明
+        if (secondNode->node_type == ast_operator_type::AST_OP_ARRAY_DECL) {
+            // 数组形参：处理为数组声明
+            printf("[DEBUG] ir_function_formal_params: Processing array parameter\n");
 
-        // 生成赋值指令，将形参值赋给局部变量
-        // 这里使用Move指令将形参值复制到局部变量
-        MoveInstruction * moveInst = new MoveInstruction(currentFunc, localVar, formalParam);
-        node->blockInsts.addInst(moveInst);
+            // 调用数组声明处理函数
+            bool result = ir_array_declare(secondNode);
+            if (!result) {
+                printf("[ERROR] ir_function_formal_params: Failed to process array parameter\n");
+                return false;
+            }
+
+            // 将数组声明的指令添加到当前节点
+            node->blockInsts.addInst(secondNode->blockInsts);
+
+        } else {
+            // 普通形参：处理为普通局部变量
+            printf("[DEBUG] ir_function_formal_params: Processing regular parameter\n");
+
+            ast_node * nameNode = secondNode;
+
+            // 为形参创建局部变量，用于在函数内部使用
+            LocalVariable * localVar =
+                static_cast<LocalVariable *>(module->newVarValue(typeNode->type, nameNode->name));
+            if (!localVar) {
+                return false;
+            }
+
+            // 生成赋值指令，将形参值赋给局部变量
+            // 这里使用Move指令将形参值复制到局部变量
+            MoveInstruction * moveInst = new MoveInstruction(currentFunc, localVar, formalParam);
+            node->blockInsts.addInst(moveInst);
+        }
     }
 
     return true;
@@ -562,15 +585,31 @@ bool IRGenerator::ir_assign(ast_node * node)
 
     // 这里只处理整型的数据，如需支持实数，则需要针对类型进行处理
 
-    MoveInstruction * movInst = new MoveInstruction(module->getCurrentFunction(), left->val, right->val);
-
     // 创建临时变量保存IR的值，以及线性IR指令
     node->blockInsts.addInst(right->blockInsts);
     node->blockInsts.addInst(left->blockInsts);
-    node->blockInsts.addInst(movInst);
+
+    Instruction * assignInst = nullptr;
+
+    // 检查左操作数是否是数组访问（指针类型）
+    if (son1_node->node_type == ast_operator_type::AST_OP_ARRAY_REF) {
+        // 数组赋值：*ptr = value
+        // 在DragonIR中，使用MoveInstruction进行内存写入，left->val是地址，right->val是值
+        assignInst = new MoveInstruction(module->getCurrentFunction(), left->val, right->val);
+        printf(
+            "[DEBUG] ir_assign: Generated move instruction for array element assignment (address = %s, value = %s)\n",
+            left->val->getIRName().c_str(),
+            right->val->getIRName().c_str());
+    } else {
+        // 普通变量赋值：var = value
+        assignInst = new MoveInstruction(module->getCurrentFunction(), left->val, right->val);
+        printf("[DEBUG] ir_assign: Generated move instruction for variable assignment\n");
+    }
+
+    node->blockInsts.addInst(assignInst);
 
     // 这里假定赋值的类型是一致的
-    node->val = movInst;
+    node->val = assignInst;
 
     return true;
 }
@@ -1861,6 +1900,13 @@ bool IRGenerator::ir_array_declare(ast_node * node)
            id_node->name.c_str(),
            node->type->toString().c_str());
 
+    // 验证变量是否成功添加到符号表
+    Value * testFind = module->findVarValue(id_node->name);
+    if (!testFind) {
+        printf("[ERROR] ir_array_declare: Array %s not found in symbol table after creation\n", id_node->name.c_str());
+        return false;
+    }
+
     return true;
 }
 
@@ -1889,14 +1935,41 @@ bool IRGenerator::ir_array_ref(ast_node * node)
     }
 
     // 处理下标表达式
-    ast_node * visited_index = ir_visit_ast_node(index_node);
-    if (!visited_index) {
-        printf("[ERROR] ir_array_ref: Failed to visit array index\n");
-        return false;
+    printf("[DEBUG] ir_array_ref: Processing index node type: %d\n", (int) index_node->node_type);
+
+    Value * indexValue = nullptr;
+
+    if (index_node->node_type == ast_operator_type::AST_OP_ARRAY_DIM) {
+        // 处理ArrayDimensions节点，需要访问其第一个孩子（实际的下标表达式）
+        if (index_node->sons.empty()) {
+            printf("[ERROR] ir_array_ref: ArrayDimensions node has no children\n");
+            return false;
+        }
+
+        ast_node * actual_index = index_node->sons[0]; // 获取第一个维度的表达式
+        ast_node * visited_index = ir_visit_ast_node(actual_index);
+        if (!visited_index) {
+            printf("[ERROR] ir_array_ref: Failed to visit array index expression\n");
+            return false;
+        }
+
+        // 添加下标计算的指令
+        node->blockInsts.addInst(visited_index->blockInsts);
+        indexValue = visited_index->val;
+    } else {
+        // 直接的表达式节点
+        ast_node * visited_index = ir_visit_ast_node(index_node);
+        if (!visited_index) {
+            printf("[ERROR] ir_array_ref: Failed to visit array index\n");
+            return false;
+        }
+
+        // 添加下标计算的指令
+        node->blockInsts.addInst(visited_index->blockInsts);
+        indexValue = visited_index->val;
     }
 
-    // 添加下标计算的指令
-    node->blockInsts.addInst(visited_index->blockInsts);
+    printf("[DEBUG] ir_array_ref: Index processed successfully\n");
 
     // 计算数组元素地址
     Function * currentFunc = module->getCurrentFunction();
@@ -1908,26 +1981,24 @@ bool IRGenerator::ir_array_ref(ast_node * node)
         Type * elementType = arrType->getElementType();
 
         // 简化实现：一维数组访问
-        if (index_node->node_type != ast_operator_type::AST_OP_ARRAY_DIM) {
-            // 单个下标表达式
-            Value * elementSize = module->newConstInt(elementType->getSize());
+        // 对于一维数组访问，index_node应该是一个表达式节点，而不是AST_OP_ARRAY_DIM
+        Value * elementSize = module->newConstInt(elementType->getSize());
 
-            BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
-                                                                IRInstOperator::IRINST_OP_MUL_I,
-                                                                visited_index->val,
-                                                                elementSize,
-                                                                IntegerType::getTypeInt());
-            node->blockInsts.addInst(mulInst);
+        BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
+                                                            IRInstOperator::IRINST_OP_MUL_I,
+                                                            indexValue,
+                                                            elementSize,
+                                                            IntegerType::getTypeInt());
+        node->blockInsts.addInst(mulInst);
 
-            // 创建指针类型的临时变量来存储元素地址
-            PointerType * ptrType = PointerType::getType(elementType);
+        // 创建指针类型的临时变量来存储元素地址
+        PointerType * ptrType = PointerType::getType(elementType);
 
-            // 生成地址计算指令：elemPtr = arrayVar + offset
-            BinaryInstruction * addrInst =
-                new BinaryInstruction(currentFunc, IRInstOperator::IRINST_OP_ADD_I, arrayVar, mulInst, ptrType);
-            node->blockInsts.addInst(addrInst);
-            node->val = addrInst;
-        }
+        // 生成地址计算指令：elemPtr = arrayVar + offset
+        BinaryInstruction * addrInst =
+            new BinaryInstruction(currentFunc, IRInstOperator::IRINST_OP_ADD_I, arrayVar, mulInst, ptrType);
+        node->blockInsts.addInst(addrInst);
+        node->val = addrInst;
 
     } else if (arrayType->isPointerType()) {
         // 函数形参数组（指针类型）
@@ -1940,7 +2011,7 @@ bool IRGenerator::ir_array_ref(ast_node * node)
         // 计算字节偏移：offset = index * elementSize
         BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
                                                             IRInstOperator::IRINST_OP_MUL_I,
-                                                            visited_index->val,
+                                                            indexValue,
                                                             elementSize,
                                                             IntegerType::getTypeInt());
         node->blockInsts.addInst(mulInst);
@@ -1955,6 +2026,48 @@ bool IRGenerator::ir_array_ref(ast_node * node)
     } else {
         printf("[ERROR] ir_array_ref: Variable %s is not an array type\n", id_node->name.c_str());
         return false;
+    }
+
+    // 检查这个数组访问是否用作左值（赋值的左边）
+    bool isLValue = false;
+    ast_node * parent = node->parent;
+    if (parent && parent->node_type == ast_operator_type::AST_OP_ASSIGN) {
+        // 检查这个节点是否是赋值的左操作数
+        if (parent->sons.size() >= 1 && parent->sons[0] == node) {
+            isLValue = true;
+        }
+    }
+
+    // 如果这是右值（用于读取），我们需要生成一个加载指令来获取实际的值
+    if (!isLValue) {
+        // 为加载的值创建一个临时变量
+        Type * elementType = nullptr;
+        if (arrayType->isArrayType()) {
+            ArrayType * arrType = dynamic_cast<ArrayType *>(arrayType);
+            elementType = arrType->getElementType();
+        } else if (arrayType->isPointerType()) {
+            const PointerType * ptrType = dynamic_cast<const PointerType *>(arrayType);
+            elementType = const_cast<Type *>(ptrType->getPointeeType());
+        }
+
+        if (elementType) {
+            // 创建临时变量来保存加载的值
+            MemVariable * loadedValue = currentFunc->newMemVariable(elementType);
+            loadedValue->setIRName(currentFunc->newTempValueName()); // 设置临时变量名
+
+            // 创建一个加载指令：value = *address
+            MoveInstruction * loadInst = new MoveInstruction(currentFunc, loadedValue, node->val);
+
+            node->blockInsts.addInst(loadInst);
+            node->val = loadedValue; // 更新node的值为加载后的值
+
+            printf("[DEBUG] ir_array_ref: Generated load instruction for array read %s\n", id_node->name.c_str());
+        } else {
+            printf("[ERROR] ir_array_ref: Could not determine element type for load\n");
+            return false;
+        }
+    } else {
+        printf("[DEBUG] ir_array_ref: Generated address for array write %s\n", id_node->name.c_str());
     }
 
     printf("[DEBUG] ir_array_ref: Generated array reference for %s\n", id_node->name.c_str());

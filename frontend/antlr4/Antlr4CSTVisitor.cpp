@@ -431,7 +431,7 @@ std::any MiniCCSTVisitor::visitVarDef(MiniCParser::VarDefContext * ctx)
         return ast_node::New(ast_operator_type::AST_OP_VAR_INIT, id_node, expr_node, nullptr);
     } else {
         // 没有初始化值，返回普通的ID节点
-        return ast_node::New(varId, lineNo);
+    return ast_node::New(varId, lineNo);
     }
 }
 
