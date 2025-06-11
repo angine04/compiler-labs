@@ -18,6 +18,8 @@
 
 #include "Value.h"
 #include "IRConstant.h"
+#include "../Types/ArrayType.h"
+#include "../Types/PointerType.h"
 
 /// @brief 描述函数形参类
 class FormalParam : public Value {
@@ -29,7 +31,47 @@ public:
     FormalParam(Type * _type, std::string _name) : Value(_type)
     {
         this->name = _name;
+        this->isArrayParam = false;
     };
+
+    /// @brief 数组类型的参数
+    /// @param _name 形参的名字
+    /// @param _type 指针类型（用于实际处理）
+    /// @param _arrayType 原始数组类型（用于显示）
+    FormalParam(Type * _type, std::string _name, Type * _arrayType) : Value(_type)
+    {
+        this->name = _name;
+        this->isArrayParam = true;
+        this->originalArrayType = _arrayType;
+    };
+
+    /// @brief 获取参数的类型字符串表示（用于IR输出）
+    /// @return 类型字符串
+    std::string getTypeString() const
+    {
+        if (isArrayParam && originalArrayType) {
+            // 数组形参显示格式：type name[0] 而不是 type[0] name
+            ArrayType * arrType = dynamic_cast<ArrayType *>(originalArrayType);
+            if (arrType) {
+                return arrType->getElementType()->toString();
+            }
+        }
+        return const_cast<FormalParam *>(this)->getType()->toString();
+    }
+
+    /// @brief 获取参数的完整字符串表示（包含名称和数组维度）
+    /// @return 完整字符串
+    std::string getFullString() const
+    {
+        if (isArrayParam && originalArrayType) {
+            // 数组形参格式：i32 %t0[0]
+            ArrayType * arrType = dynamic_cast<ArrayType *>(originalArrayType);
+            if (arrType) {
+                return arrType->getElementType()->toString() + " " + getIRName() + "[0]";
+            }
+        }
+        return getTypeString() + " " + getIRName();
+    }
 
     // /// @brief 输出字符串
     // /// @param str
@@ -133,4 +175,14 @@ private:
     /// @brief 变量加载到寄存器中时对应的寄存器编号
     ///
     int32_t loadRegNo = -1;
+
+    ///
+    /// @brief 是否是数组形参
+    ///
+    bool isArrayParam = false;
+
+    ///
+    /// @brief 原始数组类型（用于显示）
+    ///
+    Type * originalArrayType = nullptr;
 };

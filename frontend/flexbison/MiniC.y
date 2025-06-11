@@ -640,6 +640,11 @@ ArrayDimension: T_L_BRACKET Expr T_R_BRACKET {
 		// 数组维度，包含表达式
 		$$ = $2;
 	}
+	| T_L_BRACKET T_R_BRACKET {
+		// 空数组维度（用于函数形参）
+		// 创建一个特殊的节点表示空维度
+		$$ = create_contain_node(ast_operator_type::AST_OP_EMPTY_DIM);
+	}
 	;
 
 %%

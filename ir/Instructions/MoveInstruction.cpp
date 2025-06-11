@@ -36,8 +36,14 @@ MoveInstruction::MoveInstruction(Function * _func, Value * _result, Value * _src
 /// @param str 转换后的字符串
 void MoveInstruction::toString(std::string & str)
 {
-
     Value *dstVal = getOperand(0), *srcVal = getOperand(1);
 
-    str = dstVal->getIRName() + " = " + srcVal->getIRName();
+    // 检查源操作数是否是指针类型，如果是则需要生成解引用格式
+    if (srcVal->getType()->isPointerType()) {
+        // 指针解引用格式：dst = *src
+        str = dstVal->getIRName() + " = *" + srcVal->getIRName();
+    } else {
+        // 普通赋值格式：dst = src
+        str = dstVal->getIRName() + " = " + srcVal->getIRName();
+    }
 }

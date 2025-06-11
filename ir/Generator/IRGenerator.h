@@ -157,6 +157,11 @@ protected:
     /// @param node AST节点
     /// @return 翻译是否成功，true：成功，false：失败
     bool ir_array_dim(ast_node * node);
+    
+    /// @brief 空数组维度节点翻译成线性中间IR
+    /// @param node AST节点
+    /// @return 翻译是否成功，true：成功，false：失败
+    bool ir_empty_dim(ast_node * node);
 
     // New IR generation functions for relational operators
     bool ir_lt(ast_node * node); // For AST_OP_LT

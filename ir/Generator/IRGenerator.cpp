@@ -88,6 +88,7 @@ IRGenerator::IRGenerator(ast_node * _root, Module * _module) : root(_root), modu
     ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_DECL] = &IRGenerator::ir_array_declare;
     ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_REF] = &IRGenerator::ir_array_ref;
     ast2ir_handlers[ast_operator_type::AST_OP_ARRAY_DIM] = &IRGenerator::ir_array_dim;
+    ast2ir_handlers[ast_operator_type::AST_OP_EMPTY_DIM] = &IRGenerator::ir_empty_dim;
 
     /* 语句块 */
     ast2ir_handlers[ast_operator_type::AST_OP_BLOCK] = &IRGenerator::ir_block;
@@ -211,13 +212,42 @@ bool IRGenerator::ir_function_define(ast_node * node)
     std::vector<FormalParam *> formalParams;
     if (param_node) {
         for (auto paramNode: param_node->sons) {
-            // 形参节点包含两个孩子：类型节点和名字节点
+            // 形参节点包含两个孩子：类型节点和名字节点（或数组声明节点）
             ast_node * typeNode = paramNode->sons[0];
-            ast_node * nameNode = paramNode->sons[1];
+            ast_node * secondNode = paramNode->sons[1];
 
-            // 创建形参对象
-            FormalParam * formalParam = new FormalParam(typeNode->type, nameNode->name);
-            formalParams.push_back(formalParam);
+            FormalParam * formalParam = nullptr;
+
+            // 检查第二个孩子是否为数组声明
+            if (secondNode->node_type == ast_operator_type::AST_OP_ARRAY_DECL) {
+                // 数组形参
+                ast_node * nameNode = secondNode->sons[0]; // 数组名
+                ast_node * dimNode = secondNode->sons[1];  // 数组维度
+
+                // 获取数组类型信息
+                std::vector<int32_t> dimensions;
+                if (extractDimensions(dimNode, dimensions)) {
+                    // 创建原始数组类型用于显示
+                    ArrayType * originalArrayType = ArrayType::getType(typeNode->type, dimensions);
+
+                    // 为实际处理创建指针类型
+                    Type * pointerType = PointerType::getType(typeNode->type);
+
+                    // 创建数组形参对象
+                    formalParam = new FormalParam(pointerType, nameNode->name, originalArrayType);
+                } else {
+                    printf("[ERROR] ir_function_define: Failed to extract array dimensions for parameter\n");
+                    return false;
+                }
+            } else {
+                // 普通形参
+                ast_node * nameNode = secondNode;
+                formalParam = new FormalParam(typeNode->type, nameNode->name);
+            }
+
+            if (formalParam) {
+                formalParams.push_back(formalParam);
+            }
         }
     }
 
@@ -340,18 +370,35 @@ bool IRGenerator::ir_function_formal_params(ast_node * node)
 
         // 检查第二个孩子是否为数组声明
         if (secondNode->node_type == ast_operator_type::AST_OP_ARRAY_DECL) {
-            // 数组形参：处理为数组声明
+            // 数组形参：创建特殊的局部变量声明
             printf("[DEBUG] ir_function_formal_params: Processing array parameter\n");
 
-            // 调用数组声明处理函数
-            bool result = ir_array_declare(secondNode);
-            if (!result) {
-                printf("[ERROR] ir_function_formal_params: Failed to process array parameter\n");
+            ast_node * nameNode = secondNode->sons[0]; // 数组名
+            ast_node * dimNode = secondNode->sons[1];  // 数组维度
+
+            // 获取数组类型信息
+            std::vector<int32_t> dimensions;
+            if (extractDimensions(dimNode, dimensions)) {
+                // 创建指针类型用于实际处理
+                Type * pointerType = PointerType::getType(typeNode->type);
+
+                // 为数组形参创建局部变量，用于在函数内部使用
+                LocalVariable * localVar =
+                    static_cast<LocalVariable *>(module->newVarValue(pointerType, nameNode->name));
+                if (!localVar) {
+                    return false;
+                }
+
+                // 创建特殊的ArrayFormalParamVariable来显示特殊格式
+                // 暂时使用LocalVariable，但我们需要在显示时特殊处理
+
+                // 生成赋值指令，将形参值赋给局部变量
+                MoveInstruction * moveInst = new MoveInstruction(currentFunc, localVar, formalParam);
+                node->blockInsts.addInst(moveInst);
+            } else {
+                printf("[ERROR] ir_function_formal_params: Failed to extract array dimensions for parameter\n");
                 return false;
             }
-
-            // 将数组声明的指令添加到当前节点
-            node->blockInsts.addInst(secondNode->blockInsts);
 
         } else {
             // 普通形参：处理为普通局部变量
@@ -2107,12 +2154,25 @@ bool IRGenerator::extractDimensions(ast_node * dim_node, std::vector<int32_t> & 
     for (auto son: dim_node->sons) {
         if (son->node_type == ast_operator_type::AST_OP_LEAF_LITERAL_UINT) {
             dimensions.push_back(static_cast<int32_t>(son->integer_val));
+        } else if (son->node_type == ast_operator_type::AST_OP_EMPTY_DIM) {
+            // 空维度（用于函数形参），添加0表示指针
+            dimensions.push_back(0);
         } else {
             // 暂不支持非常量维度
             printf("[ERROR] extractDimensions: Non-constant array dimensions not supported\n");
             return false;
         }
     }
+    return true;
+}
+
+/// @brief 空数组维度节点翻译成线性中间IR
+/// @param node AST节点
+/// @return 翻译是否成功，true：成功，false：失败
+bool IRGenerator::ir_empty_dim(ast_node * node)
+{
+    // 空维度节点不需要生成任何指令，只是一个标记
+    node->val = nullptr;
     return true;
 }
 
