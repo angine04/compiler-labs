@@ -73,6 +73,20 @@ public:
         return getTypeString() + " " + getIRName();
     }
 
+    /// @brief 判断是否是数组形参
+    /// @return true 是数组形参，false 不是
+    bool getIsArrayParam() const
+    {
+        return isArrayParam;
+    }
+
+    /// @brief 获取原始数组类型
+    /// @return 原始数组类型指针
+    Type * getOriginalArrayType() const
+    {
+        return originalArrayType;
+    }
+
     // /// @brief 输出字符串
     // /// @param str
     // std::string toString() override

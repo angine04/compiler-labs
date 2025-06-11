@@ -38,9 +38,12 @@ void MoveInstruction::toString(std::string & str)
 {
     Value *dstVal = getOperand(0), *srcVal = getOperand(1);
 
-    // 检查源操作数是否是指针类型，如果是则需要生成解引用格式
-    if (srcVal->getType()->isPointerType()) {
-        // 指针解引用格式：dst = *src
+    // 检查目标操作数是否是指针类型，如果是则需要生成内存写入格式
+    if (dstVal->getType()->isPointerType()) {
+        // 内存写入格式：*dst = src（用于数组元素赋值）
+        str = "*" + dstVal->getIRName() + " = " + srcVal->getIRName();
+    } else if (srcVal->getType()->isPointerType()) {
+        // 指针解引用格式：dst = *src（用于数组元素读取）
         str = dstVal->getIRName() + " = *" + srcVal->getIRName();
     } else {
         // 普通赋值格式：dst = src

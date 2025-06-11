@@ -17,6 +17,7 @@
 #include "Function.h"
 #include "Common.h"
 #include "Type.h"
+#include "../Values/FormalParam.h"
 
 /// @brief 含有参数的函数调用
 /// @param srcVal 函数的实参Value
@@ -70,7 +71,18 @@ void FuncCallInstruction::toString(std::string & str)
 
             auto operand = getOperand(k);
 
-            str += operand->getType()->toString() + " " + operand->getIRName();
+            // 获取被调用函数的形参信息
+            std::string paramTypeStr;
+            if (calledFunction && k < static_cast<int32_t>(calledFunction->getParams().size())) {
+                // 使用被调用函数的形参类型信息
+                FormalParam * param = calledFunction->getParams()[k];
+                paramTypeStr = param->getTypeString();
+            } else {
+                // 回退到操作数自身的类型
+                paramTypeStr = operand->getType()->toString();
+            }
+
+            str += paramTypeStr + " " + operand->getIRName();
 
             if (k != (operandsNum - 1)) {
                 str += ", ";

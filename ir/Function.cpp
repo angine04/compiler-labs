@@ -19,6 +19,7 @@
 
 #include "IRConstant.h"
 #include "Function.h"
+#include "ArrayType.h"
 
 /// @brief 指定函数名字、函数类型的构造函数
 /// @param _name 函数名称
@@ -104,15 +105,33 @@ void Function::toString(std::string & str)
     for (auto & var: this->varsVector) {
 
         // 局部变量和临时变量需要输出declare语句
-        str += "\tdeclare " + var->getType()->toString() + " " + var->getIRName();
+        if (var->getType()->isArrayType()) {
+            // 对于数组类型，需要特殊格式：declare i32 %var[10]
+            ArrayType * arrayType = dynamic_cast<ArrayType *>(var->getType());
+            Type * elementType = arrayType->getElementType();
+
+            std::string dimensionsStr;
+            for (int32_t dim: arrayType->getDimensions()) {
+                dimensionsStr += "[" + std::to_string(dim) + "]";
+            }
+
+            str += "\tdeclare " + elementType->toString() + " " + var->getIRName() + dimensionsStr;
+        } else {
+            str += "\tdeclare " + var->getType()->toString() + " " + var->getIRName();
+        }
 
         std::string extraStr;
         std::string realName = var->getName();
         if (!realName.empty()) {
-            str += " ; " + std::to_string(var->getScopeLevel()) + ":" + realName;
+            str += " ; variable: " + realName;
         }
 
         str += "\n";
+    }
+
+    // 输出内存变量的declare形式
+    for (auto & memVar: this->memVector) {
+        str += "\tdeclare " + memVar->getType()->toString() + " " + memVar->getIRName() + "\n";
     }
 
     // 输出临时变量的declare形式
@@ -297,6 +316,11 @@ void Function::renameIR()
     for (auto & var: this->varsVector) {
 
         var->setIRName(IR_LOCAL_VARNAME_PREFIX + std::to_string(nameIndex++));
+    }
+
+    // 内存变量重命名（MemVariable）
+    for (auto & memVar: this->memVector) {
+        memVar->setIRName(IR_TEMP_VARNAME_PREFIX + std::to_string(nameIndex++));
     }
 
     // 遍历所有的指令进行命名

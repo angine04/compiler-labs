@@ -1981,30 +1981,32 @@ bool IRGenerator::ir_array_ref(ast_node * node)
         return false;
     }
 
-    // 处理下标表达式
+    // 处理下标表达式 - 支持多维数组
     printf("[DEBUG] ir_array_ref: Processing index node type: %d\n", (int) index_node->node_type);
 
-    Value * indexValue = nullptr;
+    std::vector<Value *> indexValues;
 
     if (index_node->node_type == ast_operator_type::AST_OP_ARRAY_DIM) {
-        // 处理ArrayDimensions节点，需要访问其第一个孩子（实际的下标表达式）
+        // 处理ArrayDimensions节点，包含多个维度的下标表达式
         if (index_node->sons.empty()) {
             printf("[ERROR] ir_array_ref: ArrayDimensions node has no children\n");
             return false;
         }
 
-        ast_node * actual_index = index_node->sons[0]; // 获取第一个维度的表达式
-        ast_node * visited_index = ir_visit_ast_node(actual_index);
-        if (!visited_index) {
-            printf("[ERROR] ir_array_ref: Failed to visit array index expression\n");
-            return false;
-        }
+        // 处理所有维度的下标表达式
+        for (auto dim_expr: index_node->sons) {
+            ast_node * visited_index = ir_visit_ast_node(dim_expr);
+            if (!visited_index) {
+                printf("[ERROR] ir_array_ref: Failed to visit array index expression\n");
+                return false;
+            }
 
-        // 添加下标计算的指令
-        node->blockInsts.addInst(visited_index->blockInsts);
-        indexValue = visited_index->val;
+            // 添加下标计算的指令
+            node->blockInsts.addInst(visited_index->blockInsts);
+            indexValues.push_back(visited_index->val);
+        }
     } else {
-        // 直接的表达式节点
+        // 直接的表达式节点（一维数组访问）
         ast_node * visited_index = ir_visit_ast_node(index_node);
         if (!visited_index) {
             printf("[ERROR] ir_array_ref: Failed to visit array index\n");
@@ -2013,10 +2015,10 @@ bool IRGenerator::ir_array_ref(ast_node * node)
 
         // 添加下标计算的指令
         node->blockInsts.addInst(visited_index->blockInsts);
-        indexValue = visited_index->val;
+        indexValues.push_back(visited_index->val);
     }
 
-    printf("[DEBUG] ir_array_ref: Index processed successfully\n");
+    printf("[DEBUG] ir_array_ref: Index processed successfully, %zu dimensions\n", indexValues.size());
 
     // 计算数组元素地址
     Function * currentFunc = module->getCurrentFunction();
@@ -2026,14 +2028,44 @@ bool IRGenerator::ir_array_ref(ast_node * node)
         // 局部数组变量
         ArrayType * arrType = dynamic_cast<ArrayType *>(arrayType);
         Type * elementType = arrType->getElementType();
+        std::vector<int32_t> dimensions = arrType->getDimensions();
 
-        // 简化实现：一维数组访问
-        // 对于一维数组访问，index_node应该是一个表达式节点，而不是AST_OP_ARRAY_DIM
+        // 计算多维数组的偏移：offset = (...((i0 * d1 + i1) * d2 + i2) * ... + in) * element_size
+        Value * offset = nullptr;
+
+        if (indexValues.size() == 1) {
+            // 一维数组访问
+            offset = indexValues[0];
+        } else {
+            // 多维数组访问
+            offset = indexValues[0]; // 从第一个维度开始
+
+            for (size_t i = 1; i < indexValues.size(); i++) {
+                // offset = offset * dimensions[i] + indexValues[i]
+                Value * dimSize = module->newConstInt(dimensions[i]);
+
+                BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
+                                                                    IRInstOperator::IRINST_OP_MUL_I,
+                                                                    offset,
+                                                                    dimSize,
+                                                                    IntegerType::getTypeInt());
+                node->blockInsts.addInst(mulInst);
+
+                BinaryInstruction * addInst = new BinaryInstruction(currentFunc,
+                                                                    IRInstOperator::IRINST_OP_ADD_I,
+                                                                    mulInst,
+                                                                    indexValues[i],
+                                                                    IntegerType::getTypeInt());
+                node->blockInsts.addInst(addInst);
+                offset = addInst;
+            }
+        }
+
+        // 最后乘以元素大小
         Value * elementSize = module->newConstInt(elementType->getSize());
-
         BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
                                                             IRInstOperator::IRINST_OP_MUL_I,
-                                                            indexValue,
+                                                            offset,
                                                             elementSize,
                                                             IntegerType::getTypeInt());
         node->blockInsts.addInst(mulInst);
@@ -2052,23 +2084,86 @@ bool IRGenerator::ir_array_ref(ast_node * node)
         const PointerType * ptrType = dynamic_cast<const PointerType *>(arrayType);
         const Type * elementType = ptrType->getPointeeType();
 
-        // 对于形参数组，需要计算元素大小的偏移
-        Value * elementSize = module->newConstInt(elementType->getSize());
+        // 尝试从变量名称查找对应的形参，获取原始数组类型信息
+        std::vector<int32_t> dimensions;
+        bool foundDimensions = false;
+        
+        if (currentFunc) {
+            // 在当前函数的形参中查找
+            for (auto param : currentFunc->getParams()) {
+                if (param->getName() == id_node->name && param->getIsArrayParam() && param->getOriginalArrayType()) {
+                    ArrayType * origArrayType = dynamic_cast<ArrayType *>(param->getOriginalArrayType());
+                    if (origArrayType) {
+                        dimensions = origArrayType->getDimensions();
+                        foundDimensions = true;
+                        break;
+                    }
+                }
+            }
+        }
 
-        // 计算字节偏移：offset = index * elementSize
-        BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
-                                                            IRInstOperator::IRINST_OP_MUL_I,
-                                                            indexValue,
-                                                            elementSize,
-                                                            IntegerType::getTypeInt());
-        node->blockInsts.addInst(mulInst);
+        if (foundDimensions && indexValues.size() > 1) {
+            // 支持多维数组形参访问 - 使用与局部数组相同的偏移计算
+            Value * offset = indexValues[0]; // 从第一个维度开始
 
-        // 生成地址计算指令：elemPtr = arrayVar + byteOffset
-        PointerType * nonConstPtrType = PointerType::getType(const_cast<Type *>(elementType));
-        BinaryInstruction * addrInst =
-            new BinaryInstruction(currentFunc, IRInstOperator::IRINST_OP_ADD_I, arrayVar, mulInst, nonConstPtrType);
-        node->blockInsts.addInst(addrInst);
-        node->val = addrInst;
+            for (size_t i = 1; i < indexValues.size(); i++) {
+                // offset = offset * dimensions[i] + indexValues[i]
+                Value * dimSize = module->newConstInt(dimensions[i]);
+
+                BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
+                                                                    IRInstOperator::IRINST_OP_MUL_I,
+                                                                    offset,
+                                                                    dimSize,
+                                                                    IntegerType::getTypeInt());
+                node->blockInsts.addInst(mulInst);
+
+                BinaryInstruction * addInst = new BinaryInstruction(currentFunc,
+                                                                    IRInstOperator::IRINST_OP_ADD_I,
+                                                                    mulInst,
+                                                                    indexValues[i],
+                                                                    IntegerType::getTypeInt());
+                node->blockInsts.addInst(addInst);
+                offset = addInst;
+            }
+
+            // 最后乘以元素大小
+            Value * elementSize = module->newConstInt(elementType->getSize());
+            BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
+                                                                IRInstOperator::IRINST_OP_MUL_I,
+                                                                offset,
+                                                                elementSize,
+                                                                IntegerType::getTypeInt());
+            node->blockInsts.addInst(mulInst);
+
+            // 生成地址计算指令：elemPtr = arrayVar + byteOffset
+            PointerType * nonConstPtrType = PointerType::getType(const_cast<Type *>(elementType));
+            BinaryInstruction * addrInst =
+                new BinaryInstruction(currentFunc, IRInstOperator::IRINST_OP_ADD_I, arrayVar, mulInst, nonConstPtrType);
+            node->blockInsts.addInst(addrInst);
+            node->val = addrInst;
+        } else {
+            // 单维访问或未找到维度信息时的原有逻辑
+            if (indexValues.size() != 1) {
+                printf("[ERROR] ir_array_ref: Multi-dimensional access requires dimension information for parameter %s\n", id_node->name.c_str());
+                return false;
+            }
+
+            // 计算字节偏移：offset = index * elementSize
+            Value * elementSize = module->newConstInt(elementType->getSize());
+            BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
+                                                                IRInstOperator::IRINST_OP_MUL_I,
+                                                                indexValues[0],
+                                                                elementSize,
+                                                                IntegerType::getTypeInt());
+            node->blockInsts.addInst(mulInst);
+
+            // 生成地址计算指令：elemPtr = arrayVar + byteOffset
+            PointerType * nonConstPtrType = PointerType::getType(const_cast<Type *>(elementType));
+            BinaryInstruction * addrInst =
+                new BinaryInstruction(currentFunc, IRInstOperator::IRINST_OP_ADD_I, arrayVar, mulInst, nonConstPtrType);
+            node->blockInsts.addInst(addrInst);
+            node->val = addrInst;
+        }
 
     } else {
         printf("[ERROR] ir_array_ref: Variable %s is not an array type\n", id_node->name.c_str());
@@ -2100,7 +2195,7 @@ bool IRGenerator::ir_array_ref(ast_node * node)
         if (elementType) {
             // 创建临时变量来保存加载的值
             MemVariable * loadedValue = currentFunc->newMemVariable(elementType);
-            loadedValue->setIRName(currentFunc->newTempValueName()); // 设置临时变量名
+            // 注意：不在这里设置IR名，让renameIR统一处理
 
             // 创建一个加载指令：value = *address
             MoveInstruction * loadInst = new MoveInstruction(currentFunc, loadedValue, node->val);
