@@ -72,8 +72,21 @@ void CodeGeneratorArm32::genDataSection()
             fprintf(fp, ".data\n");
             fprintf(fp, ".align %d\n", var->getAlignment());
             fprintf(fp, ".type %s, %%object\n", var->getName().c_str());
-            fprintf(fp, "%s\n", var->getName().c_str());
-            // TODO 后面设置初始化的值，具体请参考ARM的汇编
+            
+            // 获取初始值并生成对应的汇编指令
+            Value * initVal = var->getInitialValue();
+            if (initVal) {
+                // 检查是否是常量
+                if (auto constInt = dynamic_cast<ConstInt *>(initVal)) {
+                    fprintf(fp, "%s: .word %d\n", var->getName().c_str(), constInt->getVal());
+                } else {
+                    // 其他类型暂时不支持，使用默认值0
+                    fprintf(fp, "%s: .word 0\n", var->getName().c_str());
+                }
+            } else {
+                // 无初始值，使用默认值0
+                fprintf(fp, "%s: .word 0\n", var->getName().c_str());
+            }
         }
     }
 }

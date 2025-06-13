@@ -127,7 +127,7 @@ public:
     void toDeclareString(std::string & str)
     {
         if (initialValue) {
-            // 有初始值的全局变量：@a = global i32 3
+            // 有初始值的全局变量：declare i32 @a = 3
             if (getType()->isArrayType()) {
                 // 数组类型暂时不支持初始化，使用declare
                 ArrayType * arrayType = dynamic_cast<ArrayType *>(getType());
@@ -140,8 +140,8 @@ public:
 
                 str = "declare " + elementType->toString() + " " + getIRName() + dimensionsStr;
             } else {
-                // 标量类型支持初始化
-                str = getIRName() + " = global " + getType()->toString() + " " + initialValue->getIRName() + ", align 4";
+                // 标量类型支持初始化：DragonIR格式
+                str = "declare " + getType()->toString() + " " + getIRName() + " = " + initialValue->getIRName();
             }
         } else {
             // 无初始值的全局变量：declare i32 @a
