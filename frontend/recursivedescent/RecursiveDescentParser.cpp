@@ -164,8 +164,8 @@ static ast_node * idTail(var_id_attr & id)
 
         if (match(T_R_PAREN)) {
 
-            // 被调用函数没有实参，返回一个空的实参清单节点
-            return realParamsNode;
+            // 被调用函数没有实参，创建函数调用节点
+            return create_func_call(node, realParamsNode);
         }
 
         // 识别实参列表
@@ -556,7 +556,7 @@ static ast_node * Block()
 }
 
 ///
-/// @brief 形参解析: formalParam: basicType T_ID
+/// @brief 形参解析: formalParam: basicType T_ID (T_L_BRACKET T_R_BRACKET)*
 /// @return ast_node* 形参节点
 ///
 static ast_node * formalParam()
@@ -569,11 +569,54 @@ static ast_node * formalParam()
             var_id_attr id = rd_lval.var_id;
             advance();
 
+            // 处理数组参数：T_ID (T_L_BRACKET T_R_BRACKET)*
+            ast_node * id_node = ast_node::New(id);
+            bool is_array = false;
+            std::vector<ast_node *> dimensions;
+            
+            while (F(T_L_BRACKET)) {
+                advance(); // 消费 '['
+                if (match(T_R_BRACKET)) {
+                    // 空维度（函数形参数组的第一维可以为空）
+                    ast_node * empty_dim = create_contain_node(ast_operator_type::AST_OP_EMPTY_DIM);
+                    dimensions.push_back(empty_dim);
+                    is_array = true;
+                } else if (F(T_DEC_LITERAL)) {
+                    // 指定维度大小
+                    digit_int_attr array_size_attr = rd_lval.integer_num;
+                    ast_node * size_node = ast_node::New(array_size_attr);
+                    advance(); // 消费数字
+                    if (!match(T_R_BRACKET)) {
+                        semerror("数组形参声明缺少右中括号");
+                        if (id_node) ast_node::Delete(id_node);
+                        if (size_node) ast_node::Delete(size_node);
+                        for (auto dim : dimensions) ast_node::Delete(dim);
+                        return nullptr;
+                    }
+                    dimensions.push_back(size_node);
+                    is_array = true;
+                } else {
+                    semerror("数组形参声明格式错误");
+                    if (id_node) ast_node::Delete(id_node);
+                    for (auto dim : dimensions) ast_node::Delete(dim);
+                    return nullptr;
+                }
+            }
+
             // 创建类型节点
             ast_node * type_node = create_type_node(type);
 
-            // 创建变量ID节点
-            ast_node * id_node = ast_node::New(id);
+            // 如果是数组参数，创建数组声明节点结构
+            if (is_array) {
+                // 创建数组维度容器节点
+                ast_node * dim_container = create_contain_node(ast_operator_type::AST_OP_ARRAY_DIM);
+                for (auto dim : dimensions) {
+                    dim_container->insert_son_node(dim);
+                }
+                
+                // 创建数组声明节点
+                id_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node, dim_container);
+            }
 
             // 释放字符串空间
             free(id.id);
@@ -669,6 +712,7 @@ static ast_node * idtail(type_attr & type, var_id_attr & id)
     // 处理数组维度
     ast_node * var_node = ast_node::New(id);
     bool is_array = false;
+    std::vector<ast_node *> dimensions;
     
     while (F(T_L_BRACKET)) {
         advance(); // 消费 '['
@@ -680,16 +724,30 @@ static ast_node * idtail(type_attr & type, var_id_attr & id)
                 semerror("数组声明缺少右中括号");
                 if (var_node) ast_node::Delete(var_node);
                 if (size_node) ast_node::Delete(size_node);
+                for (auto dim : dimensions) ast_node::Delete(dim);
                 return nullptr;
             }
-            // 创建数组声明节点
-            var_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, var_node, size_node);
+            // 收集维度节点
+            dimensions.push_back(size_node);
             is_array = true;
         } else {
             semerror("数组声明缺少大小");
             if (var_node) ast_node::Delete(var_node);
+            for (auto dim : dimensions) ast_node::Delete(dim);
             return nullptr;
         }
+    }
+    
+    // 如果是数组，创建数组声明节点结构
+    if (is_array) {
+        // 创建数组维度容器节点
+        ast_node * dim_container = create_contain_node(ast_operator_type::AST_OP_ARRAY_DIM);
+        for (auto dim : dimensions) {
+            dim_container->insert_son_node(dim);
+        }
+        
+        // 创建数组声明节点
+        var_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, var_node, dim_container);
     }
     
     // 处理初始化（如果有）
@@ -715,6 +773,10 @@ static ast_node * idtail(type_attr & type, var_id_attr & id)
 
     // 处理后续的变量声明
     varDeclList(stmt_node);
+
+    // 释放字符串空间
+    free(id.id);
+    id.id = nullptr;
 
     return stmt_node;
 }
@@ -845,7 +907,12 @@ static ast_node * Factor()
                 // 函数调用
                 advance(); // consume '('
                 ast_node * params_node = create_contain_node(ast_operator_type::AST_OP_FUNC_REAL_PARAMS);
-                realParamList(params_node);
+                
+                // 检查是否有参数
+                if (!F(T_R_PAREN)) {
+                    realParamList(params_node);
+                }
+                
                 if (!match(T_R_PAREN)) {
                     semerror("函数调用缺少右括号");
                     if (node) ast_node::Delete(node);
@@ -1071,6 +1138,8 @@ static ast_node * continueStatement()
     }
     return nullptr;
 }
+
+
 
 // 前向声明扩展表达式函数
 static ast_node * logicalOrExpr();
