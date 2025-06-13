@@ -31,10 +31,46 @@ public:
     /// @param _type 类型
     /// @param _name 名字
     ///
-    explicit GlobalVariable(Type * _type, std::string _name) : GlobalValue(_type, _name)
+    explicit GlobalVariable(Type * _type, std::string _name) : GlobalValue(_type, _name), initialValue(nullptr)
     {
         // 设置对齐大小
         setAlignment(4);
+    }
+
+    ///
+    /// @brief 构建带初始值的全局变量
+    /// @param _type 类型
+    /// @param _name 名字
+    /// @param _initialValue 初始值
+    ///
+    explicit GlobalVariable(Type * _type, std::string _name, Value * _initialValue) 
+        : GlobalValue(_type, _name), initialValue(_initialValue)
+    {
+        // 设置对齐大小
+        setAlignment(4);
+        // 有初始值，不在BSS段
+        inBSSSection = false;
+    }
+
+    ///
+    /// @brief 设置初始值
+    /// @param value 初始值
+    ///
+    void setInitialValue(Value * value)
+    {
+        initialValue = value;
+        if (value) {
+            inBSSSection = false;
+        }
+    }
+
+    ///
+    /// @brief 获取初始值
+    /// @return 初始值，nullptr表示无初始值
+    ///
+    Value * getInitialValue() const
+    {
+        return initialValue;
     }
 
     ///
@@ -90,19 +126,38 @@ public:
     ///
     void toDeclareString(std::string & str)
     {
-        if (getType()->isArrayType()) {
-            // 对于数组类型，需要特殊格式：declare i32 @a[10]
-            ArrayType * arrayType = dynamic_cast<ArrayType *>(getType());
-            Type * elementType = arrayType->getElementType();
+        if (initialValue) {
+            // 有初始值的全局变量：@a = global i32 3
+            if (getType()->isArrayType()) {
+                // 数组类型暂时不支持初始化，使用declare
+                ArrayType * arrayType = dynamic_cast<ArrayType *>(getType());
+                Type * elementType = arrayType->getElementType();
 
-            std::string dimensionsStr;
-            for (int32_t dim: arrayType->getDimensions()) {
-                dimensionsStr += "[" + std::to_string(dim) + "]";
+                std::string dimensionsStr;
+                for (int32_t dim: arrayType->getDimensions()) {
+                    dimensionsStr += "[" + std::to_string(dim) + "]";
+                }
+
+                str = "declare " + elementType->toString() + " " + getIRName() + dimensionsStr;
+            } else {
+                // 标量类型支持初始化
+                str = getIRName() + " = global " + getType()->toString() + " " + initialValue->getIRName() + ", align 4";
             }
-
-            str = "declare " + elementType->toString() + " " + getIRName() + dimensionsStr;
         } else {
-            str = "declare " + getType()->toString() + " " + getIRName();
+            // 无初始值的全局变量：declare i32 @a
+            if (getType()->isArrayType()) {
+                ArrayType * arrayType = dynamic_cast<ArrayType *>(getType());
+                Type * elementType = arrayType->getElementType();
+
+                std::string dimensionsStr;
+                for (int32_t dim: arrayType->getDimensions()) {
+                    dimensionsStr += "[" + std::to_string(dim) + "]";
+                }
+
+                str = "declare " + elementType->toString() + " " + getIRName() + dimensionsStr;
+            } else {
+                str = "declare " + getType()->toString() + " " + getIRName();
+            }
         }
     }
 
@@ -116,4 +171,9 @@ private:
     /// @brief 默认全局变量在BSS段，没有初始化，或者即使初始化过，但都值都为0
     ///
     bool inBSSSection = true;
+
+    ///
+    /// @brief 全局变量的初始值，nullptr表示无初始值
+    ///
+    Value * initialValue;
 };

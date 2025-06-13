@@ -1874,11 +1874,25 @@ bool IRGenerator::ir_variable_initialize(ast_node * node)
     ast_node * id_node = node->sons[0];
     ast_node * init_expr_node = node->sons[1];
 
-    // 首先处理初值表达式
-    ast_node * visited_expr = ir_visit_ast_node(init_expr_node);
-    if (!visited_expr) {
-        printf("[ERROR] ir_variable_initialize: Failed to visit initialization expression\n");
-        return false;
+    Function * currentFunc = module->getCurrentFunction();
+    ast_node * visited_expr = nullptr;
+
+    if (!currentFunc) {
+        // 全局变量：尝试计算常量表达式
+        visited_expr = evaluateConstantExpression(init_expr_node);
+        if (!visited_expr) {
+            printf("[ERROR] ir_variable_initialize: Global variable initialization must be constant expression\n");
+            return false;
+        }
+    } else {
+        // 局部变量：正常处理表达式
+        visited_expr = ir_visit_ast_node(init_expr_node);
+        if (!visited_expr) {
+            printf("[ERROR] ir_variable_initialize: Failed to visit initialization expression\n");
+            return false;
+        }
+        // 添加表达式的指令
+        node->blockInsts.addInst(visited_expr->blockInsts);
     }
 
     // 检查表达式是否产生了值
@@ -1887,9 +1901,6 @@ bool IRGenerator::ir_variable_initialize(ast_node * node)
         return false;
     }
 
-    // 添加表达式的指令
-    node->blockInsts.addInst(visited_expr->blockInsts);
-
     // 创建变量（类型从表达式推断）
     Type * var_type = visited_expr->val->getType();
     if (!var_type) {
@@ -1897,16 +1908,30 @@ bool IRGenerator::ir_variable_initialize(ast_node * node)
         return false;
     }
 
-    Value * varValue = module->newVarValue(var_type, id_node->name);
+    Value * varValue;
+
+    // 使用统一的方法：先用newVarValue创建变量，然后对全局变量设置初始值
+    varValue = module->newVarValue(var_type, id_node->name);
     if (!varValue) {
         printf("[ERROR] ir_variable_initialize: Failed to create variable %s\n", id_node->name.c_str());
         return false;
     }
 
-    // 创建赋值指令，将初值赋给变量
-    Function * currentFunc = module->getCurrentFunction();
-    MoveInstruction * assignInst = new MoveInstruction(currentFunc, varValue, visited_expr->val);
-    node->blockInsts.addInst(assignInst);
+    if (!currentFunc) {
+        // 全局变量：设置初始值
+        GlobalVariable * globalVar = dynamic_cast<GlobalVariable *>(varValue);
+        if (globalVar) {
+            globalVar->setInitialValue(visited_expr->val);
+        }
+        
+        // 全局变量初始化不需要额外的指令，初始值已经包含在声明中
+        // 常量表达式计算不产生指令
+        
+    } else {
+        // 局部变量：创建赋值指令，将初值赋给变量
+        MoveInstruction * assignInst = new MoveInstruction(currentFunc, varValue, visited_expr->val);
+        node->blockInsts.addInst(assignInst);
+    }
 
     // 变量初始化节点的值就是变量本身
     node->val = varValue;
@@ -1916,6 +1941,53 @@ bool IRGenerator::ir_variable_initialize(ast_node * node)
            var_type->toString().c_str());
 
     return true;
+}
+
+/// @brief 计算常量表达式（仅用于全局变量初始化）
+/// @param node 表达式AST节点
+/// @return 包含常量值的AST节点，失败返回nullptr
+ast_node * IRGenerator::evaluateConstantExpression(ast_node * node)
+{
+    if (!node) {
+        return nullptr;
+    }
+
+    switch (node->node_type) {
+        case ast_operator_type::AST_OP_LEAF_LITERAL_UINT: {
+            // 整数字面量
+            ast_node * result = new ast_node(ast_operator_type::AST_OP_LEAF_LITERAL_UINT, IntegerType::getTypeInt());
+            result->val = module->newConstInt(node->integer_val);
+            return result;
+        }
+
+        case ast_operator_type::AST_OP_NEG: {
+            // 负数：-expr
+            if (node->sons.size() != 1) {
+                return nullptr;
+            }
+            
+            ast_node * operand = evaluateConstantExpression(node->sons[0]);
+            if (!operand || !operand->val) {
+                return nullptr;
+            }
+
+            // 检查操作数是否是常量
+            ConstInt * constVal = dynamic_cast<ConstInt *>(operand->val);
+            if (!constVal) {
+                return nullptr;
+            }
+
+            // 计算负值
+            int32_t result_val = -constVal->getVal();
+            ast_node * result = new ast_node(ast_operator_type::AST_OP_LEAF_LITERAL_UINT, IntegerType::getTypeInt());
+            result->val = module->newConstInt(result_val);
+            return result;
+        }
+
+        // 可以在这里添加其他常量表达式的处理，如加法、减法等
+        default:
+            return nullptr;
+    }
 }
 
 /// @brief 数组声明节点翻译成线性中间IR

@@ -148,6 +148,15 @@ protected:
     ///
     GlobalVariable * newGlobalVariable(Type * type, std::string name);
 
+    ///
+    /// @brief 新建带初始值的全局变量
+    /// @param type 类型
+    /// @param name 名字
+    /// @param initialValue 初始值
+    /// @return GlobalVariable* 全局变量
+    ///
+    GlobalVariable * newGlobalVariable(Type * type, std::string name, Value * initialValue);
+
     /// @brief 根据变量名获取当前符号（只管理全局变量）
     /// \param name 变量名
     /// \return 变量对应的值

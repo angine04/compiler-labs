@@ -143,6 +143,11 @@ protected:
     /// @return 翻译是否成功，true：成功，false：失败
     bool ir_variable_initialize(ast_node * node);
 
+    /// @brief 计算常量表达式（仅用于全局变量初始化）
+    /// @param node 表达式AST节点
+    /// @return 包含常量值的AST节点，失败返回nullptr
+    ast_node * evaluateConstantExpression(ast_node * node);
+
     /// @brief 数组声明节点翻译成线性中间IR
     /// @param node AST节点
     /// @return 翻译是否成功，true：成功，false：失败

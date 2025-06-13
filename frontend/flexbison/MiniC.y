@@ -338,6 +338,12 @@ Statement : T_RETURN Expr T_SEMICOLON {
 		// 创建返回节点AST_OP_RETURN，其孩子为Expr，即$2
 		$$ = create_contain_node(ast_operator_type::AST_OP_RETURN, $2);
 	}
+	| T_RETURN T_SEMICOLON {
+		// 空返回语句（void函数）
+
+		// 创建返回节点AST_OP_RETURN，没有子节点
+		$$ = create_contain_node(ast_operator_type::AST_OP_RETURN);
+	}
 	| LVal T_ASSIGN Expr T_SEMICOLON {
 		// 赋值语句
 

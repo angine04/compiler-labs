@@ -263,6 +263,22 @@ GlobalVariable * Module::newGlobalVariable(Type * type, std::string name)
     return val;
 }
 
+///
+/// @brief 新建带初始值的全局变量
+/// @param type 类型
+/// @param name 名字
+/// @param initialValue 初始值
+/// @return GlobalVariable* 全局变量
+///
+GlobalVariable * Module::newGlobalVariable(Type * type, std::string name, Value * initialValue)
+{
+    GlobalVariable * val = new GlobalVariable(type, name, initialValue);
+
+    insertGlobalValueDirectly(val);
+
+    return val;
+}
+
 /// @brief 根据变量名获取当前符号(只管理全局变量和常量)
 /// @param name 变量名或者常量名
 /// @param create 变量查找不到时若为true则自动创建变量型Value，否则不创建
