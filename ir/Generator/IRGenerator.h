@@ -212,11 +212,19 @@ private:
     /// @brief 抽象语法树的根
     ast_node * root;
 
-    /// @brief 符号表:模块
+    /// @brief 模块，存放函数、全局变量、指令等
     Module * module;
 
-    std::stack<std::pair<LabelInstruction *, LabelInstruction *>>
-        loop_label_stack; // pair: {continue_target, break_target}
+    /// @brief 栈，用于存放break和continue的跳转目标标签
+    std::stack<std::pair<LabelInstruction *, LabelInstruction *>> loop_label_stack;
+
+    /// @brief 辅助函数：将i1类型的值转换为i32类型
+    /// @param i1_val i1类型的值
+    /// @param currentFunc 当前函数
+    /// @param blockInsts 指令块
+    /// @param var_name_prefix 转换变量名前缀
+    /// @return 转换后的i32值
+    Value * convertI1ToI32(Value * i1_val, Function * currentFunc, InterCode & blockInsts, const std::string & var_name_prefix);
 
     void generate_branch_for_condition(ast_node * condition_node,
                                        LabelInstruction * true_target,

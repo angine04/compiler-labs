@@ -551,17 +551,22 @@ bool IRGenerator::ir_add(ast_node * node)
         return false;
     }
 
-    // 这里只处理整型的数据，如需支持实数，则需要针对类型进行处理
-
-    BinaryInstruction * addInst = new BinaryInstruction(module->getCurrentFunction(),
-                                                        IRInstOperator::IRINST_OP_ADD_I,
-                                                        left->val,
-                                                        right->val,
-                                                        IntegerType::getTypeInt());
-
-    // 创建临时变量保存IR的值，以及线性IR指令
+    // 先添加操作数的指令
     node->blockInsts.addInst(left->blockInsts);
     node->blockInsts.addInst(right->blockInsts);
+
+    // 处理类型转换：如果操作数是i1类型，需要转换为i32
+    Function * currentFunc = module->getCurrentFunction();
+    Value * left_val = convertI1ToI32(left->val, currentFunc, node->blockInsts, "add_i1_to_i32_left");
+    Value * right_val = convertI1ToI32(right->val, currentFunc, node->blockInsts, "add_i1_to_i32_right");
+
+    BinaryInstruction * addInst = new BinaryInstruction(currentFunc,
+                                                        IRInstOperator::IRINST_OP_ADD_I,
+                                                        left_val,
+                                                        right_val,
+                                                        IntegerType::getTypeInt());
+
+    // 添加加法指令
     node->blockInsts.addInst(addInst);
 
     node->val = addInst;
@@ -588,14 +593,21 @@ bool IRGenerator::ir_sub(ast_node * node)
         return false;
     }
 
-    BinaryInstruction * subInst = new BinaryInstruction(module->getCurrentFunction(),
-                                                        IRInstOperator::IRINST_OP_SUB_I,
-                                                        left->val,
-                                                        right->val,
-                                                        IntegerType::getTypeInt());
-
+    // 先添加操作数的指令
     node->blockInsts.addInst(left->blockInsts);
     node->blockInsts.addInst(right->blockInsts);
+
+    // 处理类型转换：如果操作数是i1类型，需要转换为i32
+    Function * currentFunc = module->getCurrentFunction();
+    Value * left_val = convertI1ToI32(left->val, currentFunc, node->blockInsts, "sub_i1_to_i32_left");
+    Value * right_val = convertI1ToI32(right->val, currentFunc, node->blockInsts, "sub_i1_to_i32_right");
+
+    BinaryInstruction * subInst = new BinaryInstruction(currentFunc,
+                                                        IRInstOperator::IRINST_OP_SUB_I,
+                                                        left_val,
+                                                        right_val,
+                                                        IntegerType::getTypeInt());
+
     node->blockInsts.addInst(subInst);
     node->val = subInst;
 
@@ -808,14 +820,21 @@ bool IRGenerator::ir_mul(ast_node * node)
     if (!right)
         return false;
 
-    BinaryInstruction * mulInst = new BinaryInstruction(module->getCurrentFunction(),
-                                                        IRInstOperator::IRINST_OP_MUL_I,
-                                                        left->val,
-                                                        right->val,
-                                                        IntegerType::getTypeInt());
-
+    // 先添加操作数的指令
     node->blockInsts.addInst(left->blockInsts);
     node->blockInsts.addInst(right->blockInsts);
+
+    // 处理类型转换：如果操作数是i1类型，需要转换为i32
+    Function * currentFunc = module->getCurrentFunction();
+    Value * left_val = convertI1ToI32(left->val, currentFunc, node->blockInsts, "mul_i1_to_i32_left");
+    Value * right_val = convertI1ToI32(right->val, currentFunc, node->blockInsts, "mul_i1_to_i32_right");
+
+    BinaryInstruction * mulInst = new BinaryInstruction(currentFunc,
+                                                        IRInstOperator::IRINST_OP_MUL_I,
+                                                        left_val,
+                                                        right_val,
+                                                        IntegerType::getTypeInt());
+
     node->blockInsts.addInst(mulInst);
     node->val = mulInst;
 
@@ -839,14 +858,21 @@ bool IRGenerator::ir_div(ast_node * node)
 
     // TODO: 考虑除零错误的处理，可以在语义分析或这里添加运行时检查
 
-    BinaryInstruction * divInst = new BinaryInstruction(module->getCurrentFunction(),
-                                                        IRInstOperator::IRINST_OP_DIV_I,
-                                                        left->val,
-                                                        right->val,
-                                                        IntegerType::getTypeInt());
-
+    // 先添加操作数的指令
     node->blockInsts.addInst(left->blockInsts);
     node->blockInsts.addInst(right->blockInsts);
+
+    // 处理类型转换：如果操作数是i1类型，需要转换为i32
+    Function * currentFunc = module->getCurrentFunction();
+    Value * left_val = convertI1ToI32(left->val, currentFunc, node->blockInsts, "div_i1_to_i32_left");
+    Value * right_val = convertI1ToI32(right->val, currentFunc, node->blockInsts, "div_i1_to_i32_right");
+
+    BinaryInstruction * divInst = new BinaryInstruction(currentFunc,
+                                                        IRInstOperator::IRINST_OP_DIV_I,
+                                                        left_val,
+                                                        right_val,
+                                                        IntegerType::getTypeInt());
+
     node->blockInsts.addInst(divInst);
     node->val = divInst;
 
@@ -870,14 +896,21 @@ bool IRGenerator::ir_mod(ast_node * node)
 
     // TODO: 考虑除零错误的处理
 
-    BinaryInstruction * remInst = new BinaryInstruction(module->getCurrentFunction(),
-                                                        IRInstOperator::IRINST_OP_REM_I,
-                                                        left->val,
-                                                        right->val,
-                                                        IntegerType::getTypeInt());
-
+    // 先添加操作数的指令
     node->blockInsts.addInst(left->blockInsts);
     node->blockInsts.addInst(right->blockInsts);
+
+    // 处理类型转换：如果操作数是i1类型，需要转换为i32
+    Function * currentFunc = module->getCurrentFunction();
+    Value * left_val = convertI1ToI32(left->val, currentFunc, node->blockInsts, "mod_i1_to_i32_left");
+    Value * right_val = convertI1ToI32(right->val, currentFunc, node->blockInsts, "mod_i1_to_i32_right");
+
+    BinaryInstruction * remInst = new BinaryInstruction(currentFunc,
+                                                        IRInstOperator::IRINST_OP_REM_I,
+                                                        left_val,
+                                                        right_val,
+                                                        IntegerType::getTypeInt());
+
     node->blockInsts.addInst(remInst);
     node->val = remInst;
 
@@ -2422,4 +2455,42 @@ bool IRGenerator::isInFormalParams(ast_node * node)
         parent = parent->parent;
     }
     return false;
+}
+
+/// @brief 辅助函数：将i1类型的值转换为i32类型
+/// @param i1_val i1类型的值
+/// @param currentFunc 当前函数
+/// @param blockInsts 指令块
+/// @param var_name_prefix 转换变量名前缀
+/// @return 转换后的i32值
+Value * IRGenerator::convertI1ToI32(Value * i1_val, Function * currentFunc, InterCode & blockInsts, const std::string & var_name_prefix)
+{
+    if (!i1_val->getType()->isInt1Byte()) {
+        // 如果不是i1类型，直接返回原值
+        return i1_val;
+    }
+
+    printf("[DEBUG] convertI1ToI32: Converting i1 value %s to i32\n", i1_val->getIRName().c_str());
+    
+    LocalVariable * temp_i32_storage = static_cast<LocalVariable *>(
+        currentFunc->newLocalVarValue(IntegerType::getTypeInt(), var_name_prefix));
+    
+    LabelInstruction * set_one_label = new LabelInstruction(currentFunc);
+    LabelInstruction * set_zero_label = new LabelInstruction(currentFunc);
+    LabelInstruction * continue_label = new LabelInstruction(currentFunc);
+
+    blockInsts.addInst(new BranchInstruction(currentFunc, i1_val, set_one_label, set_zero_label));
+
+    blockInsts.addInst(set_one_label);
+    blockInsts.addInst(new MoveInstruction(currentFunc, temp_i32_storage, module->newConstInt(1)));
+    blockInsts.addInst(new GotoInstruction(currentFunc, continue_label));
+
+    blockInsts.addInst(set_zero_label);
+    blockInsts.addInst(new MoveInstruction(currentFunc, temp_i32_storage, module->newConstInt(0)));
+    blockInsts.addInst(new GotoInstruction(currentFunc, continue_label));
+
+    blockInsts.addInst(continue_label);
+    
+    printf("[DEBUG] convertI1ToI32: Conversion completed. Result: %s\n", temp_i32_storage->getIRName().c_str());
+    return temp_i32_storage;
 }
