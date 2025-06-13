@@ -19,8 +19,8 @@ funcDef: (T_INT | T_VOID) T_ID T_L_PAREN formalParamList? T_R_PAREN block;
 // 形参列表
 formalParamList: formalParam (T_COMMA formalParam)*;
 
-// 形参定义
-formalParam: basicType T_ID;
+// 形参定义 - 支持数组参数
+formalParam: basicType T_ID (T_L_BRACKET T_DEC_LITERAL? T_R_BRACKET)*;
 
 // 语句块看用作函数体，这里允许多个语句，并且不含任何语句
 block: T_L_BRACE blockItemList? T_R_BRACE;
@@ -57,11 +57,11 @@ expr:
 
 logicalOrExpr:
 	logicalAndExpr								# passToLogicalAndExpr
-	| logicalOrExpr T_LOGICAL_OR logicalAndExpr	# logicalOrExpr;
+	| logicalOrExpr T_LOGICAL_OR logicalAndExpr	# logicalOrOpExpr;
 
 logicalAndExpr:
 	equalityExpr								# passToEqualityExpr
-	| logicalAndExpr T_LOGICAL_AND equalityExpr	# logicalAndExpr;
+	| logicalAndExpr T_LOGICAL_AND equalityExpr	# logicalAndOpExpr;
 
 equalityExpr:
 	relationalExpr								# passToRelationalExpr

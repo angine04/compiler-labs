@@ -62,12 +62,6 @@ protected:
     /// @return AST的节点
     std::any visitBlockItem(MiniCParser::BlockItemContext * ctx) override;
 
-    /// @brief 非终结运算符statement中的遍历
-    /// @param ctx CST上下文
-    /// @return AST的节点
-    // std::any visitStatement(MiniCParser::StatementContext * ctx); // This was not an override, specific to old impl?
-    // Statement has labeled alternatives, so we visit those directly.
-
     /// @brief 非终结运算符statement中的returnStatement的遍历
     /// @param ctx CST上下文
     /// @return AST的节点
@@ -99,7 +93,100 @@ protected:
     ///
     std::any visitExpressionStatement(MiniCParser::ExpressionStatementContext * context) override;
 
-    // New/Updated Expression Visitor Methods (matching MiniCBaseVisitor.h from new .g4)
+    // 新增的控制流语句访问方法
+    ///
+    /// @brief 非终结符IfStatement的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitIfStatement(MiniCParser::IfStatementContext * ctx) override;
+
+    ///
+    /// @brief 非终结符WhileStatement的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitWhileStatement(MiniCParser::WhileStatementContext * ctx) override;
+
+    ///
+    /// @brief 非终结符BreakStatement的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitBreakStatement(MiniCParser::BreakStatementContext * ctx) override;
+
+    ///
+    /// @brief 非终结符ContinueStatement的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitContinueStatement(MiniCParser::ContinueStatementContext * ctx) override;
+
+    // 新增的逻辑表达式访问方法
+    ///
+    /// @brief 逻辑或运算符表达式的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitLogicalOrOpExpr(MiniCParser::LogicalOrOpExprContext * ctx) override;
+
+    ///
+    /// @brief 传递到LogicalAndExpr的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitPassToLogicalAndExpr(MiniCParser::PassToLogicalAndExprContext * ctx) override;
+
+    ///
+    /// @brief 逻辑与运算符表达式的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitLogicalAndOpExpr(MiniCParser::LogicalAndOpExprContext * ctx) override;
+
+    ///
+    /// @brief 传递到EqualityExpr的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitPassToEqualityExpr(MiniCParser::PassToEqualityExprContext * ctx) override;
+
+    ///
+    /// @brief 相等比较运算符表达式的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitEqualityOpExpr(MiniCParser::EqualityOpExprContext * ctx) override;
+
+    ///
+    /// @brief 传递到RelationalExpr的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitPassToRelationalExpr(MiniCParser::PassToRelationalExprContext * ctx) override;
+
+    ///
+    /// @brief 关系比较运算符表达式的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitRelationalOpExpr(MiniCParser::RelationalOpExprContext * ctx) override;
+
+    ///
+    /// @brief 传递到AddExpr的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitPassToAddExpr(MiniCParser::PassToAddExprContext * ctx) override;
+
+    ///
+    /// @brief 逻辑非运算符表达式的分析
+    /// @param ctx CST上下文
+    /// @return std::any AST的节点
+    ///
+    std::any visitLogicalNotExpr(MiniCParser::LogicalNotExprContext * ctx) override;
+
+    // 现有表达式方法
     std::any visitPassToMulExpr(MiniCParser::PassToMulExprContext * ctx) override;
     std::any visitAddSubExpr(MiniCParser::AddSubExprContext * ctx) override;
     std::any visitPassToUnaryExpr(MiniCParser::PassToUnaryExprContext * ctx) override;
@@ -111,13 +198,6 @@ protected:
     std::any visitLValAtom(MiniCParser::LValAtomContext * ctx) override;
     std::any visitFunctionCallAtom(MiniCParser::FunctionCallAtomContext * ctx) override;
     std::any visitIntegerLiteral(MiniCParser::IntegerLiteralContext * ctx) override;
-
-    // Old expression methods to be removed or that are superseded by labeled versions
-    // std::any visitAddExp(MiniCParser::AddExpContext * ctx) override; // Superseded by PassToMulExpr & AddSubExpr
-    // std::any visitAddOp(MiniCParser::AddOpContext * ctx) override; // Operator is token, handled in AddSubExpr etc.
-    // std::any visitUnaryExp(MiniCParser::UnaryExpContext * ctx) override; // Superseded by NegationExpr &
-    // PassToPrimaryExpr std::any visitPrimaryExp(MiniCParser::PrimaryExpContext * ctx) override; // Superseded by
-    // specific atom visits
 
     ///
     /// @brief 非终结符LVal的分析

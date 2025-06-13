@@ -42,6 +42,11 @@ static KeywordToken allKeywords[] = {
     {"int", RDTokenType::T_INT},
     {"void", RDTokenType::T_VOID},
     {"return", RDTokenType::T_RETURN},
+    {"if", RDTokenType::T_IF},
+    {"else", RDTokenType::T_ELSE},
+    {"while", RDTokenType::T_WHILE},
+    {"break", RDTokenType::T_BREAK},
+    {"continue", RDTokenType::T_CONTINUE},
 };
 
 /// @brief 在标识符中检查是否时关键字，若是关键字则返回对应关键字的Token，否则返回T_ID
@@ -163,6 +168,12 @@ int rd_flex()
     } else if (c == '}') {
         tokenKind = RDTokenType::T_R_BRACE;
         tokenValue = "}";
+    } else if (c == '[') {
+        tokenKind = RDTokenType::T_L_BRACKET;
+        tokenValue = "[";
+    } else if (c == ']') {
+        tokenKind = RDTokenType::T_R_BRACKET;
+        tokenValue = "]";
     } else if (c == ';') {
         tokenKind = RDTokenType::T_SEMICOLON;
         tokenValue = ";";
@@ -176,14 +187,120 @@ int rd_flex()
         tokenKind = RDTokenType::T_MUL;
         tokenValue = "*";
     } else if (c == '/') {
-        tokenKind = RDTokenType::T_DIV;
-        tokenValue = "/";
+        // 检查是否为注释
+        int next_c = fgetc(rd_filein);
+        if (next_c == '/') {
+            // 单行注释，读到行末
+            tokenValue = "//";
+            while ((c = fgetc(rd_filein)) != '\n' && c != EOF) {
+                tokenValue += (char)c;
+            }
+            if (c == '\n') {
+                rd_line_no++;
+            }
+            ungetc(c, rd_filein);
+            // 跳过注释，重新获取下一个token
+            return rd_flex();
+        } else if (next_c == '*') {
+            // 多行注释
+            tokenValue = "/*";
+            bool found_end = false;
+            while (!found_end) {
+                c = fgetc(rd_filein);
+                if (c == EOF) {
+                    fprintf(stderr, "Line(%lld): Unterminated comment\n", (long long)rd_line_no);
+                    tokenKind = RDTokenType::T_ERR;
+                    return tokenKind;
+                }
+                tokenValue += (char)c;
+                if (c == '\n') {
+                    rd_line_no++;
+                } else if (c == '*') {
+                    int after_star = fgetc(rd_filein);
+                    if (after_star == '/') {
+                        tokenValue += '/';
+                        found_end = true;
+                    } else {
+                        ungetc(after_star, rd_filein);
+                    }
+                }
+            }
+            // 跳过注释，重新获取下一个token
+            return rd_flex();
+        } else {
+            ungetc(next_c, rd_filein);
+            tokenKind = RDTokenType::T_DIV;
+            tokenValue = "/";
+        }
     } else if (c == '%') {
         tokenKind = RDTokenType::T_MOD;
         tokenValue = "%";
     } else if (c == '=') {
-        tokenKind = RDTokenType::T_ASSIGN;
-        tokenValue = "=";
+        // 检查是否为 ==
+        int next_c = fgetc(rd_filein);
+        if (next_c == '=') {
+            tokenKind = RDTokenType::T_EQ;
+            tokenValue = "==";
+        } else {
+            ungetc(next_c, rd_filein);
+            tokenKind = RDTokenType::T_ASSIGN;
+            tokenValue = "=";
+        }
+    } else if (c == '<') {
+        // 检查是否为 <=
+        int next_c = fgetc(rd_filein);
+        if (next_c == '=') {
+            tokenKind = RDTokenType::T_LE;
+            tokenValue = "<=";
+        } else {
+            ungetc(next_c, rd_filein);
+            tokenKind = RDTokenType::T_LT;
+            tokenValue = "<";
+        }
+    } else if (c == '>') {
+        // 检查是否为 >=
+        int next_c = fgetc(rd_filein);
+        if (next_c == '=') {
+            tokenKind = RDTokenType::T_GE;
+            tokenValue = ">=";
+        } else {
+            ungetc(next_c, rd_filein);
+            tokenKind = RDTokenType::T_GT;
+            tokenValue = ">";
+        }
+    } else if (c == '!') {
+        // 检查是否为 !=
+        int next_c = fgetc(rd_filein);
+        if (next_c == '=') {
+            tokenKind = RDTokenType::T_NE;
+            tokenValue = "!=";
+        } else {
+            ungetc(next_c, rd_filein);
+            tokenKind = RDTokenType::T_LOGICAL_NOT;
+            tokenValue = "!";
+        }
+    } else if (c == '&') {
+        // 检查是否为 &&
+        int next_c = fgetc(rd_filein);
+        if (next_c == '&') {
+            tokenKind = RDTokenType::T_LOGICAL_AND;
+            tokenValue = "&&";
+        } else {
+            ungetc(next_c, rd_filein);
+            fprintf(stderr, "Line(%lld): Invalid character '&'\n", (long long)rd_line_no);
+            tokenKind = RDTokenType::T_ERR;
+        }
+    } else if (c == '|') {
+        // 检查是否为 ||
+        int next_c = fgetc(rd_filein);
+        if (next_c == '|') {
+            tokenKind = RDTokenType::T_LOGICAL_OR;
+            tokenValue = "||";
+        } else {
+            ungetc(next_c, rd_filein);
+            fprintf(stderr, "Line(%lld): Invalid character '|'\n", (long long)rd_line_no);
+            tokenKind = RDTokenType::T_ERR;
+        }
     } else if (c == ',') {
         tokenKind = RDTokenType::T_COMMA;
         tokenValue = ",";

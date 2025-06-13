@@ -37,6 +37,8 @@ enum RDTokenType {
     T_R_PAREN,
     T_L_BRACE,
     T_R_BRACE,
+    T_L_BRACKET,    // [
+    T_R_BRACKET,    // ]
     T_SEMICOLON,
     T_COMMA,
 
@@ -46,7 +48,27 @@ enum RDTokenType {
     T_SUB,
     T_MUL, // Multiplication
     T_DIV, // Division
-    T_MOD  // Modulus
+    T_MOD, // Modulus
+
+    // 比较运算符
+    T_LT,  // <
+    T_LE,  // <=
+    T_GT,  // >
+    T_GE,  // >=
+    T_EQ,  // ==
+    T_NE,  // !=
+
+    // 逻辑运算符
+    T_LOGICAL_AND,  // &&
+    T_LOGICAL_OR,   // ||
+    T_LOGICAL_NOT,  // !
+
+    // 控制流关键字
+    T_IF,
+    T_ELSE,
+    T_WHILE,
+    T_BREAK,
+    T_CONTINUE
 };
 
 /// @brief 词法与语法分析数据交互的Token的值类型

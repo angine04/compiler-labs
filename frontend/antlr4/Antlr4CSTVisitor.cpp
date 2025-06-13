@@ -164,9 +164,8 @@ std::any MiniCCSTVisitor::visitBlockItem(MiniCParser::BlockItemContext * ctx)
 /// @param ctx CST上下文
 std::any MiniCCSTVisitor::visitExpr(MiniCParser::ExprContext * ctx)
 {
-    //识别产生式：expr: addExpr;
-    // Our new g4 is: expr: addExpr;
-    return visit(ctx->addExpr()); // Dispatch to the next level of precedence
+    //识别产生式：expr: logicalOrExpr;
+    return visit(ctx->logicalOrExpr()); // Dispatch to the next level of precedence
 }
 
 // Implement new pass-through visitors
@@ -253,7 +252,7 @@ std::any MiniCCSTVisitor::visitNegationExpr(MiniCParser::NegationExprContext * c
 // Restore/Confirm visitLVal if it was removed by the previous edit block comment
 std::any MiniCCSTVisitor::visitLVal(MiniCParser::LValContext * ctx)
 {
-    //识别文法产生式：lVal: T_ID;
+    // 识别文法产生式：lVal: T_ID (T_L_BRACKET expr T_R_BRACKET)*;
     // 获取ID的名字
     auto varIdText = ctx->T_ID()->getText();
     char * varId = strdup(varIdText.c_str());
@@ -263,8 +262,28 @@ std::any MiniCCSTVisitor::visitLVal(MiniCParser::LValContext * ctx)
 
     // Assuming var_id_attr has only {char* id, int64_t lineno}
     var_id_attr id_attr = {varId, lineNo};
+    
+    // Create the base ID node
+    ast_node * base_node = ast_node::New(id_attr);
 
-    return std::any(ast_node::New(id_attr));
+    // 检查是否有数组访问
+    if (ctx->expr().empty()) {
+        // 没有数组访问，返回简单的ID节点
+        return std::any(base_node);
+    } else {
+        // 有数组访问，为每个维度创建数组访问节点
+        ast_node * current_node = base_node;
+        
+        for (auto exprCtx : ctx->expr()) {
+            // 访问数组索引表达式
+            auto index_node = std::any_cast<ast_node *>(visit(exprCtx));
+            
+            // 创建数组访问节点 AST_OP_ARRAY_REF
+            current_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_REF, current_node, index_node);
+        }
+        
+        return std::any(current_node);
+    }
 }
 
 // Implement Function Call Atom
@@ -398,6 +417,10 @@ std::any MiniCCSTVisitor::visitVarDecl(MiniCParser::VarDeclContext * ctx)
             // 初始化节点，直接使用并设置类型
             decl_node = var_node;
             decl_node->type = type_node->type;
+        } else if (var_node->node_type == ast_operator_type::AST_OP_ARRAY_DECL) {
+            // 数组声明节点，设置类型并直接使用
+            decl_node = var_node;
+            decl_node->type = type_node->type;
         } else {
             // 普通ID节点，创建变量声明节点
             decl_node = ast_node::New(ast_operator_type::AST_OP_VAR_DECL, type_node, var_node, nullptr);
@@ -412,26 +435,43 @@ std::any MiniCCSTVisitor::visitVarDecl(MiniCParser::VarDeclContext * ctx)
 
 std::any MiniCCSTVisitor::visitVarDef(MiniCParser::VarDefContext * ctx)
 {
-    // varDef: T_ID (T_ASSIGN expr)?;
+    // varDef: T_ID (T_L_BRACKET T_DEC_LITERAL T_R_BRACKET)* (T_ASSIGN expr)?;
 
     auto varId = ctx->T_ID()->getText();
 
     // 获取行号
     int64_t lineNo = (int64_t) ctx->T_ID()->getSymbol()->getLine();
 
+    // 创建基础的变量ID节点
+    ast_node * id_node = ast_node::New(varId, lineNo);
+
+    // 处理数组维度 (T_L_BRACKET T_DEC_LITERAL T_R_BRACKET)*
+    ast_node * var_node = id_node;
+    if (!ctx->T_DEC_LITERAL().empty()) {
+        // 有数组维度，创建数组声明节点
+        var_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node);
+        
+        // 为每个维度添加大小节点
+        for (auto decLiteral : ctx->T_DEC_LITERAL()) {
+            std::string text = decLiteral->getText();
+            uint32_t val = static_cast<uint32_t>(std::stoul(text, nullptr, 10));
+            int64_t decLineNo = decLiteral->getSymbol()->getLine();
+            digit_int_attr dim_attr = {val, decLineNo};
+            ast_node * dim_node = ast_node::New(dim_attr);
+            (void) var_node->insert_son_node(dim_node);
+        }
+    }
+
     // 检查是否有初始化表达式
     if (ctx->expr()) {
-        // 有初始化值，创建变量ID节点
-        ast_node * id_node = ast_node::New(varId, lineNo);
-
-        // 访问初始化表达式
+        // 有初始化值
         ast_node * expr_node = std::any_cast<ast_node *>(visitExpr(ctx->expr()));
 
         // 创建初始化节点
-        return ast_node::New(ast_operator_type::AST_OP_VAR_INIT, id_node, expr_node, nullptr);
+        return ast_node::New(ast_operator_type::AST_OP_VAR_INIT, var_node, expr_node, nullptr);
     } else {
-        // 没有初始化值，返回普通的ID节点
-    return ast_node::New(varId, lineNo);
+        // 没有初始化值，返回变量节点（可能是ID节点或数组声明节点）
+        return var_node;
     }
 }
 
@@ -498,7 +538,7 @@ std::any MiniCCSTVisitor::visitFormalParamList(MiniCParser::FormalParamListConte
 /// @param ctx CST上下文
 std::any MiniCCSTVisitor::visitFormalParam(MiniCParser::FormalParamContext * ctx)
 {
-    // 识别文法产生式：formalParam: basicType T_ID;
+    // 识别文法产生式：formalParam: basicType T_ID (T_L_BRACKET T_DEC_LITERAL? T_R_BRACKET)*;
 
     // 获取类型信息
     type_attr typeAttr = std::any_cast<type_attr>(visitBasicType(ctx->basicType()));
@@ -509,12 +549,201 @@ std::any MiniCCSTVisitor::visitFormalParam(MiniCParser::FormalParamContext * ctx
 
     var_id_attr paramId{paramName, lineNo};
 
+    // 创建基础的参数名节点
+    ast_node * id_node = ast_node::New(paramId);
+
+    // 处理数组维度 (T_L_BRACKET T_DEC_LITERAL? T_R_BRACKET)*
+    // 对于函数参数，第一维可以为空(如 int arr[])，但后续维度必须有大小
+    if (!ctx->T_L_BRACKET().empty()) {
+        // 这是数组参数，创建数组参数节点
+        ast_node * array_param_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node);
+        
+        // 处理每个维度
+        size_t bracket_count = ctx->T_L_BRACKET().size();
+        size_t literal_count = ctx->T_DEC_LITERAL().size();
+        
+        for (size_t i = 0; i < bracket_count; i++) {
+            if (i < literal_count) {
+                // 有数字字面量
+                auto decLiteral = ctx->T_DEC_LITERAL(i);
+                std::string text = decLiteral->getText();
+                uint32_t val = static_cast<uint32_t>(std::stoul(text, nullptr, 10));
+                int64_t decLineNo = decLiteral->getSymbol()->getLine();
+                digit_int_attr dim_attr = {val, decLineNo};
+                ast_node * dim_node = ast_node::New(dim_attr);
+                (void) array_param_node->insert_son_node(dim_node);
+            } else {
+                // 空维度（通常是第一维），创建一个特殊的0大小节点表示空维度
+                digit_int_attr dim_attr = {0, lineNo}; // 0表示未指定大小
+                ast_node * dim_node = ast_node::New(dim_attr);
+                (void) array_param_node->insert_son_node(dim_node);
+            }
+        }
+        
+        id_node = array_param_node;
+    }
+
     // 创建类型节点
     ast_node * type_node = create_type_node(typeAttr);
 
-    // 创建参数名节点
-    ast_node * id_node = ast_node::New(paramId);
-
     // 创建形参节点
     return ast_node::New(ast_operator_type::AST_OP_FUNC_FORMAL_PARAM, type_node, id_node, nullptr);
+}
+
+// 新增的控制流语句实现
+std::any MiniCCSTVisitor::visitIfStatement(MiniCParser::IfStatementContext * ctx)
+{
+    // 识别文法产生式：T_IF T_L_PAREN expr T_R_PAREN statement (T_ELSE statement)?
+    
+    // 获取条件表达式
+    ast_node * condition = std::any_cast<ast_node *>(visitExpr(ctx->expr()));
+    
+    // 获取then分支语句
+    ast_node * then_stmt = std::any_cast<ast_node *>(visit(ctx->statement(0)));
+    
+    // 检查是否有else分支
+    ast_node * else_stmt = nullptr;
+    if (ctx->statement().size() > 1) {
+        else_stmt = std::any_cast<ast_node *>(visit(ctx->statement(1)));
+    }
+    
+    // 创建if节点
+    if (else_stmt) {
+        return ast_node::New(ast_operator_type::AST_OP_IF, condition, then_stmt, else_stmt);
+    } else {
+        return ast_node::New(ast_operator_type::AST_OP_IF, condition, then_stmt, nullptr);
+    }
+}
+
+std::any MiniCCSTVisitor::visitWhileStatement(MiniCParser::WhileStatementContext * ctx)
+{
+    // 识别文法产生式：T_WHILE T_L_PAREN expr T_R_PAREN statement
+    
+    // 获取条件表达式
+    ast_node * condition = std::any_cast<ast_node *>(visitExpr(ctx->expr()));
+    
+    // 获取循环体语句
+    ast_node * body = std::any_cast<ast_node *>(visit(ctx->statement()));
+    
+    // 创建while节点
+    return ast_node::New(ast_operator_type::AST_OP_WHILE, condition, body, nullptr);
+}
+
+std::any MiniCCSTVisitor::visitBreakStatement(MiniCParser::BreakStatementContext * ctx)
+{
+    // 识别文法产生式：T_BREAK T_SEMICOLON
+    return create_contain_node(ast_operator_type::AST_OP_BREAK);
+}
+
+std::any MiniCCSTVisitor::visitContinueStatement(MiniCParser::ContinueStatementContext * ctx)
+{
+    // 识别文法产生式：T_CONTINUE T_SEMICOLON
+    return create_contain_node(ast_operator_type::AST_OP_CONTINUE);
+}
+
+// 新增的逻辑表达式实现
+std::any MiniCCSTVisitor::visitLogicalOrOpExpr(MiniCParser::LogicalOrOpExprContext * ctx)
+{
+    // 识别文法产生式：logicalOrExpr T_LOGICAL_OR logicalAndExpr
+    ast_node * left = std::any_cast<ast_node *>(visit(ctx->logicalOrExpr()));
+    ast_node * right = std::any_cast<ast_node *>(visit(ctx->logicalAndExpr()));
+    
+    if (!left || !right) {
+        return nullptr;
+    }
+    
+    return create_contain_node(ast_operator_type::AST_OP_LOGICAL_OR, left, right);
+}
+
+std::any MiniCCSTVisitor::visitPassToLogicalAndExpr(MiniCParser::PassToLogicalAndExprContext * ctx)
+{
+    return visit(ctx->logicalAndExpr());
+}
+
+std::any MiniCCSTVisitor::visitLogicalAndOpExpr(MiniCParser::LogicalAndOpExprContext * ctx)
+{
+    // 识别文法产生式：logicalAndExpr T_LOGICAL_AND equalityExpr
+    ast_node * left = std::any_cast<ast_node *>(visit(ctx->logicalAndExpr()));
+    ast_node * right = std::any_cast<ast_node *>(visit(ctx->equalityExpr()));
+    
+    if (!left || !right) {
+        return nullptr;
+    }
+    
+    return create_contain_node(ast_operator_type::AST_OP_LOGICAL_AND, left, right);
+}
+
+std::any MiniCCSTVisitor::visitPassToEqualityExpr(MiniCParser::PassToEqualityExprContext * ctx)
+{
+    return visit(ctx->equalityExpr());
+}
+
+std::any MiniCCSTVisitor::visitEqualityOpExpr(MiniCParser::EqualityOpExprContext * ctx)
+{
+    // 识别文法产生式：equalityExpr (T_EQ | T_NE) relationalExpr
+    ast_node * left = std::any_cast<ast_node *>(visit(ctx->equalityExpr()));
+    ast_node * right = std::any_cast<ast_node *>(visit(ctx->relationalExpr()));
+    
+    if (!left || !right) {
+        return nullptr;
+    }
+    
+    ast_operator_type op_type;
+    if (ctx->T_EQ()) {
+        op_type = ast_operator_type::AST_OP_EQ;
+    } else if (ctx->T_NE()) {
+        op_type = ast_operator_type::AST_OP_NE;
+    } else {
+        return nullptr;
+    }
+    
+    return create_contain_node(op_type, left, right);
+}
+
+std::any MiniCCSTVisitor::visitPassToRelationalExpr(MiniCParser::PassToRelationalExprContext * ctx)
+{
+    return visit(ctx->relationalExpr());
+}
+
+std::any MiniCCSTVisitor::visitRelationalOpExpr(MiniCParser::RelationalOpExprContext * ctx)
+{
+    // 识别文法产生式：relationalExpr (T_LT | T_LE | T_GT | T_GE) addExpr
+    ast_node * left = std::any_cast<ast_node *>(visit(ctx->relationalExpr()));
+    ast_node * right = std::any_cast<ast_node *>(visit(ctx->addExpr()));
+    
+    if (!left || !right) {
+        return nullptr;
+    }
+    
+    ast_operator_type op_type;
+    if (ctx->T_LT()) {
+        op_type = ast_operator_type::AST_OP_LT;
+    } else if (ctx->T_LE()) {
+        op_type = ast_operator_type::AST_OP_LE;
+    } else if (ctx->T_GT()) {
+        op_type = ast_operator_type::AST_OP_GT;
+    } else if (ctx->T_GE()) {
+        op_type = ast_operator_type::AST_OP_GE;
+    } else {
+        return nullptr;
+    }
+    
+    return create_contain_node(op_type, left, right);
+}
+
+std::any MiniCCSTVisitor::visitPassToAddExpr(MiniCParser::PassToAddExprContext * ctx)
+{
+    return visit(ctx->addExpr());
+}
+
+std::any MiniCCSTVisitor::visitLogicalNotExpr(MiniCParser::LogicalNotExprContext * ctx)
+{
+    // 识别文法产生式：T_LOGICAL_NOT unaryExpr
+    ast_node * operand = std::any_cast<ast_node *>(visit(ctx->unaryExpr()));
+    
+    if (!operand) {
+        return nullptr;
+    }
+    
+    return create_contain_node(ast_operator_type::AST_OP_LOGICAL_NOT, operand);
 }
