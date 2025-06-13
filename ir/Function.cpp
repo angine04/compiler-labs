@@ -20,6 +20,7 @@
 #include "IRConstant.h"
 #include "Function.h"
 #include "ArrayType.h"
+#include "Types/PointerType.h"
 
 /// @brief 指定函数名字、函数类型的构造函数
 /// @param _name 函数名称
@@ -103,10 +104,26 @@ void Function::toString(std::string & str)
 
     // 输出局部变量的名字与IR名字
     for (auto & var: this->varsVector) {
-
-        // 局部变量和临时变量需要输出declare语句
-        if (var->getType()->isArrayType()) {
-            // 对于数组类型，需要特殊格式：declare i32 %var[10]
+        // 检查是否是数组形参局部变量（通过变量名和类型匹配形参）
+        bool isArrayParam = false;
+        for (auto & param : this->params) {
+            if (param->getName() == var->getName() && param->getIsArrayParam() && 
+                var->getType()->isPointerType()) {
+                isArrayParam = true;
+                break;
+            }
+        }
+        
+        if (isArrayParam) {
+            // 数组形参格式：declare i32 %name[0]
+            PointerType * ptrType = dynamic_cast<PointerType *>(var->getType());
+            if (ptrType) {
+                str += "\tdeclare " + ptrType->getPointeeType()->toString() + " " + var->getIRName() + "[0]";
+            } else {
+                str += "\tdeclare " + var->getType()->toString() + " " + var->getIRName();
+            }
+        } else if (var->getType()->isArrayType()) {
+            // 对于普通数组类型，需要特殊格式：declare i32 %var[10]
             ArrayType * arrayType = dynamic_cast<ArrayType *>(var->getType());
             Type * elementType = arrayType->getElementType();
 
@@ -117,10 +134,10 @@ void Function::toString(std::string & str)
 
             str += "\tdeclare " + elementType->toString() + " " + var->getIRName() + dimensionsStr;
         } else {
+            // 普通局部变量格式
             str += "\tdeclare " + var->getType()->toString() + " " + var->getIRName();
         }
 
-        std::string extraStr;
         std::string realName = var->getName();
         if (!realName.empty()) {
             str += " ; variable: " + realName;

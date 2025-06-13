@@ -38,8 +38,11 @@ void MoveInstruction::toString(std::string & str)
 {
     Value *dstVal = getOperand(0), *srcVal = getOperand(1);
 
-    // 检查目标操作数是否是指针类型，如果是则需要生成内存写入格式
-    if (dstVal->getType()->isPointerType()) {
+    // 检查是否是数组形参到局部变量的赋值（都是指针类型）
+    if (dstVal->getType()->isPointerType() && srcVal->getType()->isPointerType()) {
+        // 数组形参赋值格式：dst = src（用于数组形参到局部变量）
+        str = dstVal->getIRName() + " = " + srcVal->getIRName();
+    } else if (dstVal->getType()->isPointerType()) {
         // 内存写入格式：*dst = src（用于数组元素赋值）
         str = "*" + dstVal->getIRName() + " = " + srcVal->getIRName();
     } else if (srcVal->getType()->isPointerType()) {

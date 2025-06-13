@@ -38,6 +38,7 @@
 #include "BranchInstruction.h"
 #include "ArrayType.h"
 #include "PointerType.h"
+#include "../Values/ArrayFormalParamLocalVariable.h"
 
 /// @brief 构造函数
 /// @param _root AST的根
@@ -381,16 +382,12 @@ bool IRGenerator::ir_function_formal_params(ast_node * node)
             if (extractDimensions(dimNode, dimensions)) {
                 // 创建指针类型用于实际处理
                 Type * pointerType = PointerType::getType(typeNode->type);
-
+                
                 // 为数组形参创建局部变量，用于在函数内部使用
-                LocalVariable * localVar =
-                    static_cast<LocalVariable *>(module->newVarValue(pointerType, nameNode->name));
+                LocalVariable * localVar = static_cast<LocalVariable *>(module->newVarValue(pointerType, nameNode->name));
                 if (!localVar) {
                     return false;
                 }
-
-                // 创建特殊的ArrayFormalParamVariable来显示特殊格式
-                // 暂时使用LocalVariable，但我们需要在显示时特殊处理
 
                 // 生成赋值指令，将形参值赋给局部变量
                 MoveInstruction * moveInst = new MoveInstruction(currentFunc, localVar, formalParam);

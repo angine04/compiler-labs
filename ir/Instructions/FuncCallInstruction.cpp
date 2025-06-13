@@ -18,6 +18,7 @@
 #include "Common.h"
 #include "Type.h"
 #include "../Values/FormalParam.h"
+#include "../Types/ArrayType.h"
 
 /// @brief 含有参数的函数调用
 /// @param srcVal 函数的实参Value
@@ -73,16 +74,33 @@ void FuncCallInstruction::toString(std::string & str)
 
             // 获取被调用函数的形参信息
             std::string paramTypeStr;
+            std::string operandName = operand->getIRName();
+
             if (calledFunction && k < static_cast<int32_t>(calledFunction->getParams().size())) {
                 // 使用被调用函数的形参类型信息
                 FormalParam * param = calledFunction->getParams()[k];
                 paramTypeStr = param->getTypeString();
+                
+                // 对于数组参数，需要在operand名称后添加数组大小信息
+                if (param->getIsArrayParam() && param->getOriginalArrayType()) {
+                    // 只有当operand是LocalVariable类型且其类型是ArrayType时，才添加数组大小
+                    // 全局数组（以@开头）不需要添加大小信息
+                    if (operand->getType()->isArrayType() && operandName[0] == '%') {
+                        ArrayType * operandArrayType = dynamic_cast<ArrayType *>(operand->getType());
+                        if (operandArrayType) {
+                            std::vector<int32_t> dims = operandArrayType->getDimensions();
+                            if (!dims.empty()) {
+                                operandName += "[" + std::to_string(dims[0]) + "]";
+                            }
+                        }
+                    }
+                }
             } else {
                 // 回退到操作数自身的类型
                 paramTypeStr = operand->getType()->toString();
             }
 
-            str += paramTypeStr + " " + operand->getIRName();
+            str += paramTypeStr + " " + operandName;
 
             if (k != (operandsNum - 1)) {
                 str += ", ";
