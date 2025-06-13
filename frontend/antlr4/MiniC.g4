@@ -31,25 +31,45 @@ blockItemList: blockItem+;
 // 每个Item可以是一个语句，或者变量声明语句
 blockItem: statement | varDecl;
 
-// 变量声明，目前不支持变量含有初值
+// 变量声明，支持数组声明和初始化
 varDecl: basicType varDef (T_COMMA varDef)* T_SEMICOLON;
 
 // 基本类型
 basicType: T_INT;
 
-// 变量定义，支持初始化
-varDef: T_ID (T_ASSIGN expr)?;
+// 变量定义，支持初始化和数组
+varDef: T_ID (T_L_BRACKET T_DEC_LITERAL T_R_BRACKET)* (T_ASSIGN expr)?;
 
-// 目前语句支持return和赋值语句
+// 目前语句支持return、赋值、控制流语句
 statement:
 	T_RETURN expr T_SEMICOLON			# returnStatement
 	| lVal T_ASSIGN expr T_SEMICOLON	# assignStatement
 	| block								# blockStatement
-	| expr? T_SEMICOLON					# expressionStatement;
+	| expr? T_SEMICOLON					# expressionStatement
+	| T_IF T_L_PAREN expr T_R_PAREN statement (T_ELSE statement)?  # ifStatement
+	| T_WHILE T_L_PAREN expr T_R_PAREN statement					# whileStatement
+	| T_BREAK T_SEMICOLON											# breakStatement
+	| T_CONTINUE T_SEMICOLON										# continueStatement;
 
-// 表达式文法
+// 表达式文法 - 按优先级从低到高
 expr:
-	addExpr; // Potentially, could be assignExpr if assignments were expressions
+	logicalOrExpr; 
+
+logicalOrExpr:
+	logicalAndExpr								# passToLogicalAndExpr
+	| logicalOrExpr T_LOGICAL_OR logicalAndExpr	# logicalOrExpr;
+
+logicalAndExpr:
+	equalityExpr								# passToEqualityExpr
+	| logicalAndExpr T_LOGICAL_AND equalityExpr	# logicalAndExpr;
+
+equalityExpr:
+	relationalExpr								# passToRelationalExpr
+	| equalityExpr (T_EQ | T_NE) relationalExpr # equalityOpExpr;
+
+relationalExpr:
+	addExpr										# passToAddExpr
+	| relationalExpr (T_LT | T_LE | T_GT | T_GE) addExpr	# relationalOpExpr;
 
 addExpr:
 	mulExpr								# passToMulExpr
@@ -60,25 +80,26 @@ mulExpr:
 	| mulExpr (T_MUL | T_DIV | T_MOD) unaryExpr	# mulDivModExpr;
 
 unaryExpr:
-	T_SUB unaryExpr	# negationExpr
-	| primaryExpr	# passToPrimaryExpr;
+	T_SUB unaryExpr		# negationExpr
+	| T_LOGICAL_NOT unaryExpr	# logicalNotExpr
+	| primaryExpr		# passToPrimaryExpr;
 
 primaryExpr:
 	T_L_PAREN expr T_R_PAREN					# parenthesizedExpr
 	| integerLiteral							# integerAtom
 	| lVal										# lValAtom
-	| T_ID T_L_PAREN realParamList? T_R_PAREN	# functionCallAtom; // Assuming func calls are primary
+	| T_ID T_L_PAREN realParamList? T_R_PAREN	# functionCallAtom;
 
 integerLiteral:
 	T_HEX_LITERAL
 	| T_OCT_LITERAL
-	| T_DEC_LITERAL; // Rule to group all integer literal types
+	| T_DEC_LITERAL;
 
 // 实参列表
 realParamList: expr (T_COMMA expr)*;
 
-// 左值表达式
-lVal: T_ID;
+// 左值表达式，支持数组访问
+lVal: T_ID (T_L_BRACKET expr T_R_BRACKET)*;
 
 // 用正规式来进行词法规则的描述
 
@@ -87,6 +108,8 @@ T_R_PAREN: ')';
 T_SEMICOLON: ';';
 T_L_BRACE: '{';
 T_R_BRACE: '}';
+T_L_BRACKET: '[';
+T_R_BRACKET: ']';
 
 T_ASSIGN: '=';
 T_COMMA: ',';
@@ -96,6 +119,26 @@ T_SUB: '-';
 T_MUL: '*';
 T_DIV: '/';
 T_MOD: '%';
+
+// 比较运算符
+T_LT: '<';
+T_LE: '<=';
+T_GT: '>';
+T_GE: '>=';
+T_EQ: '==';
+T_NE: '!=';
+
+// 逻辑运算符
+T_LOGICAL_AND: '&&';
+T_LOGICAL_OR: '||';
+T_LOGICAL_NOT: '!';
+
+// 控制流关键字
+T_IF: 'if';
+T_ELSE: 'else';
+T_WHILE: 'while';
+T_BREAK: 'break';
+T_CONTINUE: 'continue';
 
 // 要注意关键字同样也属于T_ID，因此必须放在T_ID的前面，否则会识别成T_ID
 T_RETURN: 'return';
@@ -112,6 +155,10 @@ T_OCT_LITERAL:
 T_DEC_LITERAL:
 	[1-9] [0-9]*
 	| '0'; // Decimal numbers, or a single '0'
+
+// 注释支持
+SINGLE_LINE_COMMENT: '//' ~[\r\n]* -> skip;
+MULTI_LINE_COMMENT: '/*' .*? '*/' -> skip;
 
 /* 空白符丢弃 */
 WS: [ \r\n\t]+ -> skip;
