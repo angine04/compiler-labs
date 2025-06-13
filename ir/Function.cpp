@@ -115,10 +115,29 @@ void Function::toString(std::string & str)
         }
         
         if (isArrayParam) {
-            // 数组形参格式：declare i32 %name[0]
+            // 数组形参格式：需要获取对应形参的完整维度信息
             PointerType * ptrType = dynamic_cast<PointerType *>(var->getType());
             if (ptrType) {
-                str += "\tdeclare " + ptrType->getPointeeType()->toString() + " " + var->getIRName() + "[0]";
+                str += "\tdeclare " + ptrType->getPointeeType()->toString() + " " + var->getIRName();
+                
+                // 查找对应的形参，获取其完整维度信息
+                for (auto & param : this->params) {
+                    if (param->getName() == var->getName() && param->getIsArrayParam()) {
+                        ArrayType * originalArrayType = dynamic_cast<ArrayType *>(param->getOriginalArrayType());
+                        if (originalArrayType) {
+                            const std::vector<int32_t> & dims = originalArrayType->getDimensions();
+                            // 第一维总是[0]，后续维度使用实际值
+                            str += "[0]";
+                            for (size_t i = 1; i < dims.size(); ++i) {
+                                str += "[" + std::to_string(dims[i]) + "]";
+                            }
+                        } else {
+                            // fallback: 只是1维数组
+                            str += "[0]";
+                        }
+                        break;
+                    }
+                }
             } else {
                 str += "\tdeclare " + var->getType()->toString() + " " + var->getIRName();
             }

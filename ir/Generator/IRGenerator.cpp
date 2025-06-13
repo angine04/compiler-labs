@@ -1170,8 +1170,33 @@ bool IRGenerator::ir_if_statement(ast_node * node)
            node->line_no);
     fflush(stdout);
 
-    if (!node || (node->sons.size() != 2 && node->sons.size() != 3)) {
-        printf("[ERROR] ir_if_statement: Invalid node or son count (%zu)\n", node ? node->sons.size() : 0);
+    if (!node) {
+        printf("[ERROR] ir_if_statement: Node is null\n");
+        fflush(stdout);
+        return false;
+    }
+    
+    // 处理特殊情况：只有条件表达式的if语句（语法错误，但我们可以处理为表达式语句）
+    if (node->sons.size() == 1) {
+        printf("[WARNING] ir_if_statement: If statement with only condition (treating as expression statement)\n");
+        fflush(stdout);
+        
+        // 将其处理为简单的表达式语句
+        ast_node * condition_node = node->sons[0];
+        ast_node * visited_condition = ir_visit_ast_node(condition_node);
+        if (!visited_condition) {
+            printf("[ERROR] ir_if_statement: Failed to visit condition expression\n");
+            return false;
+        }
+        
+        // 复制条件表达式的指令
+        node->blockInsts.addInst(visited_condition->blockInsts);
+        node->val = nullptr; // if语句本身没有值
+        return true;
+    }
+    
+    if (node->sons.size() != 2 && node->sons.size() != 3) {
+        printf("[ERROR] ir_if_statement: Invalid node or son count (%zu)\n", node->sons.size());
         fflush(stdout);
         return false;
     }

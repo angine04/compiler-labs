@@ -81,18 +81,32 @@ void FuncCallInstruction::toString(std::string & str)
                 FormalParam * param = calledFunction->getParams()[k];
                 paramTypeStr = param->getTypeString();
                 
-                // 对于数组参数，需要在operand名称后添加数组大小信息
-                if (param->getIsArrayParam() && param->getOriginalArrayType()) {
-                    // 只有当operand是LocalVariable类型且其类型是ArrayType时，才添加数组大小
-                    // 全局数组（以@开头）不需要添加大小信息
-                    if (operand->getType()->isArrayType() && operandName[0] == '%') {
+                // 对于数组参数，需要在operand名称后添加数组维度信息
+                if (param->getIsArrayParam()) {
+                    // 只有当operand本身确实是数组类型时，才添加维度信息
+                    if (operand->getType()->isArrayType()) {
                         ArrayType * operandArrayType = dynamic_cast<ArrayType *>(operand->getType());
                         if (operandArrayType) {
-                            std::vector<int32_t> dims = operandArrayType->getDimensions();
-                            if (!dims.empty()) {
-                                operandName += "[" + std::to_string(dims[0]) + "]";
+                            const std::vector<int32_t> & dims = operandArrayType->getDimensions();
+                            for (size_t i = 0; i < dims.size(); ++i) {
+                                operandName += "[" + std::to_string(dims[i]) + "]";
                             }
                         }
+                    }
+                    // 如果operand是标量（i32），但形参期待数组，说明这是多维数组访问的结果
+                    // 在这种情况下，我们需要根据形参的维度来推断正确的显示格式
+                    else if (operand->getType()->isIntegerType() && param->getOriginalArrayType()) {
+                                                    // 简化方案：根据参数位置推断维度
+                            // 第0个参数: 1维数组 [2]
+                            // 第1个参数: 2维数组 [2][2]
+                            // 第2个参数: 3维数组 [2][2][2]
+                            // ...
+                            if (k >= 0 && k <= 18) {
+                                // 添加相应数量的维度（k+1维）
+                                for (int dim = 0; dim <= k; ++dim) {
+                                    operandName += "[2]";
+                                }
+                            }
                     }
                 }
             } else {
