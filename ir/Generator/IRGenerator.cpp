@@ -1176,22 +1176,35 @@ bool IRGenerator::ir_if_statement(ast_node * node)
         return false;
     }
     
-    // 处理特殊情况：只有条件表达式的if语句（语法错误，但我们可以处理为表达式语句）
+    // 处理特殊情况：只有条件表达式的if语句（if (condition); 形式）
     if (node->sons.size() == 1) {
-        printf("[WARNING] ir_if_statement: If statement with only condition (treating as expression statement)\n");
+        printf("[DEBUG] ir_if_statement: If statement with only condition (if-condition;)\n");
         fflush(stdout);
         
-        // 将其处理为简单的表达式语句
+        // 这是一个合法的if语句：if (condition); 
+        // then分支是空语句，我们需要正确处理条件的分支逻辑
         ast_node * condition_node = node->sons[0];
-        ast_node * visited_condition = ir_visit_ast_node(condition_node);
-        if (!visited_condition) {
-            printf("[ERROR] ir_if_statement: Failed to visit condition expression\n");
-            return false;
-        }
         
-        // 复制条件表达式的指令
-        node->blockInsts.addInst(visited_condition->blockInsts);
-        node->val = nullptr; // if语句本身没有值
+        Function * currentFunc = module->getCurrentFunction();
+        assert(currentFunc != nullptr);
+        
+        // 创建标签
+        LabelInstruction * true_label = new LabelInstruction(currentFunc);
+        LabelInstruction * endif_label = new LabelInstruction(currentFunc);
+        
+        // 生成条件分支：如果条件为真，跳转到true_label，否则跳转到endif_label
+        generate_branch_for_condition(condition_node, true_label, endif_label, node->blockInsts);
+        
+        // 添加true_label（空的then分支）
+        node->blockInsts.addInst(true_label);
+        // 这里没有then分支的内容，直接跳转到endif
+        GotoInstruction * gotoEndif = new GotoInstruction(currentFunc, endif_label);
+        node->blockInsts.addInst(gotoEndif);
+        
+        // 添加endif_label
+        node->blockInsts.addInst(endif_label);
+        
+        node->val = nullptr;
         return true;
     }
     
@@ -2004,7 +2017,6 @@ bool IRGenerator::ir_array_ref(ast_node * node)
     }
 
     // 处理下标表达式 - 支持多维数组
-    printf("[DEBUG] ir_array_ref: Processing index node type: %d\n", (int) index_node->node_type);
 
     std::vector<Value *> indexValues;
 
@@ -2039,8 +2051,6 @@ bool IRGenerator::ir_array_ref(ast_node * node)
         node->blockInsts.addInst(visited_index->blockInsts);
         indexValues.push_back(visited_index->val);
     }
-
-    printf("[DEBUG] ir_array_ref: Index processed successfully, %zu dimensions\n", indexValues.size());
 
     // 计算数组元素地址
     Function * currentFunc = module->getCurrentFunction();
@@ -2192,18 +2202,56 @@ bool IRGenerator::ir_array_ref(ast_node * node)
         return false;
     }
 
-    // 检查这个数组访问是否用作左值（赋值的左边）
+    // 检查这个数组访问是否用作左值（赋值的左边）或函数参数
     bool isLValue = false;
+    bool isFunctionParam = false;
     ast_node * parent = node->parent;
+    
     if (parent && parent->node_type == ast_operator_type::AST_OP_ASSIGN) {
         // 检查这个节点是否是赋值的左操作数
         if (parent->sons.size() >= 1 && parent->sons[0] == node) {
             isLValue = true;
         }
     }
+    
+    // 检查是否是函数调用的参数：需要检查父节点是否是FUNC_REAL_PARAMS，且祖父节点是FUNC_CALL
+    if (parent && parent->node_type == ast_operator_type::AST_OP_FUNC_REAL_PARAMS) {
+        // 检查祖父节点是否是函数调用
+        ast_node * grandparent = parent->parent;
+        if (grandparent && grandparent->node_type == ast_operator_type::AST_OP_FUNC_CALL) {
+            
+            // 关键判断：只有当数组访问的维度小于数组总维度时，才作为指针传递
+            // 如果访问了所有维度（完整元素访问），则传递值
+            size_t arrayTotalDimensions = 0;
+            size_t accessDimensions = indexValues.size();
+            
+                         // 计算数组的总维度数
+             if (arrayType->isArrayType()) {
+                 ArrayType * arrType = dynamic_cast<ArrayType *>(arrayType);
+                 const std::vector<int32_t> & dimensions = arrType->getDimensions();
+                 arrayTotalDimensions = dimensions.size();
+                 // printf("[DEBUG] ir_array_ref: Array has %zu dimensions\n", arrayTotalDimensions);
+             }
+            
+                         // 如果访问维度小于总维度，说明是子数组引用，应该传递指针
+             // printf("[DEBUG] ir_array_ref: Function param check: access_dims=%zu, total_dims=%zu\n", 
+             //        accessDimensions, arrayTotalDimensions);
+             if (accessDimensions < arrayTotalDimensions) {
+                 isFunctionParam = true;
+                 // printf("[DEBUG] ir_array_ref: Detected sub-array function parameter\n");
+             } else {
+                 // printf("[DEBUG] ir_array_ref: Element access, not sub-array parameter\n");
+             }
+            // 如果访问维度等于总维度，说明是完整元素访问，应该传递值（isFunctionParam保持false）
+        }
+    }
 
-    // 如果这是右值（用于读取），我们需要生成一个加载指令来获取实际的值
-    if (!isLValue) {
+    // 如果这是右值且不是函数参数，我们需要生成一个加载指令来获取实际的值
+    // printf("[DEBUG] ir_array_ref: isLValue=%s, isFunctionParam=%s, parent_type=%d\n", 
+    //        isLValue ? "true" : "false", 
+    //        isFunctionParam ? "true" : "false",
+    //        parent ? (int)parent->node_type : -1);
+    if (!isLValue && !isFunctionParam) {
         // 为加载的值创建一个临时变量
         Type * elementType = nullptr;
         if (arrayType->isArrayType()) {
@@ -2224,17 +2272,11 @@ bool IRGenerator::ir_array_ref(ast_node * node)
 
             node->blockInsts.addInst(loadInst);
             node->val = loadedValue; // 更新node的值为加载后的值
-
-            printf("[DEBUG] ir_array_ref: Generated load instruction for array read %s\n", id_node->name.c_str());
         } else {
             printf("[ERROR] ir_array_ref: Could not determine element type for load\n");
             return false;
         }
-    } else {
-        printf("[DEBUG] ir_array_ref: Generated address for array write %s\n", id_node->name.c_str());
     }
-
-    printf("[DEBUG] ir_array_ref: Generated array reference for %s\n", id_node->name.c_str());
     return true;
 }
 

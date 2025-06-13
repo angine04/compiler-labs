@@ -25,26 +25,11 @@
 /// @param srcVal2
 Instruction::Instruction(Function * _func, IRInstOperator _op, Type * _type) : User(_type), op(_op), func(_func)
 {
-    printf("[DEBUG] Instruction Constructor: Entered. func=%p, op=%d, type=%s\n",
-           (void *) _func,
-           (int) _op,
-           _type ? _type->toString().c_str() : "null type");
-    fflush(stdout);
-
     // 只有会产生结果的指令才需要生成临时变量名
     // 标签指令等特殊指令会在其自己的构造函数中处理命名
     if (hasResultValue() && _func) { // 确保 func 不是 nullptr
-        printf("[DEBUG] Instruction Constructor: hasResultValue() is true. Calling newTempValueName.\n");
-        fflush(stdout);
         setIRName(_func->newTempValueName());
-        printf("[DEBUG] Instruction Constructor: newTempValueName called. IRName set to %s.\n", getIRName().c_str());
-        fflush(stdout);
-    } else {
-        printf("[DEBUG] Instruction Constructor: hasResultValue() is false or func is null.\n");
-        fflush(stdout);
     }
-    printf("[DEBUG] Instruction Constructor: Exiting.\n");
-    fflush(stdout);
 }
 
 /// @brief 获取指令操作码

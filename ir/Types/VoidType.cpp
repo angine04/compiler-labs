@@ -31,7 +31,7 @@ VoidType * VoidType::oneInstance = new VoidType();
 VoidType * VoidType::getType()
 {
     assert(oneInstance != nullptr && "VoidType::oneInstance is NULL!");
-    printf("[DEBUG] VoidType::getType() is called, returning instance: %p\n", (void *) oneInstance);
+    // printf("[DEBUG] VoidType::getType() is called, returning instance: %p\n", (void *) oneInstance);
     fflush(stdout);
     return oneInstance;
 }
