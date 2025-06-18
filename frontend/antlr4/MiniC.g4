@@ -20,7 +20,10 @@ funcDef: (T_INT | T_VOID) T_ID T_L_PAREN formalParamList? T_R_PAREN block;
 formalParamList: formalParam (T_COMMA formalParam)*;
 
 // 形参定义 - 支持数组参数
-formalParam: basicType T_ID (T_L_BRACKET T_DEC_LITERAL? T_R_BRACKET)*;
+formalParam: basicType T_ID arraySpecifier*;
+
+// 数组维度说明符
+arraySpecifier: T_L_BRACKET T_DEC_LITERAL? T_R_BRACKET;
 
 // 语句块看用作函数体，这里允许多个语句，并且不含任何语句
 block: T_L_BRACE blockItemList? T_R_BRACE;
@@ -42,7 +45,7 @@ varDef: T_ID (T_L_BRACKET T_DEC_LITERAL T_R_BRACKET)* (T_ASSIGN expr)?;
 
 // 目前语句支持return、赋值、控制流语句
 statement:
-	T_RETURN expr T_SEMICOLON			# returnStatement
+	T_RETURN expr? T_SEMICOLON			# returnStatement
 	| lVal T_ASSIGN expr T_SEMICOLON	# assignStatement
 	| block								# blockStatement
 	| expr? T_SEMICOLON					# expressionStatement
