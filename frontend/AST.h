@@ -113,6 +113,7 @@ enum class ast_operator_type : int {
     // AST node types for break and continue
     AST_OP_BREAK,    // break statement
     AST_OP_CONTINUE, // continue statement
+    AST_OP_EMPTY_STMT, // empty statement (;)
     // End of break and continue types
 
     // AST node types for arrays
