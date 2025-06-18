@@ -521,7 +521,8 @@ void InstSelectorArm32::translate_call(Instruction * inst)
             auto arg = callInst->getOperand(k);
 
             // 新建一个内存变量，用于栈传值到形参变量中
-            MemVariable * newVal = func->newMemVariable((Type *) PointerType::get(arg->getType()));
+            // 不要使用指针类型，使用普通类型来避免触发指针赋值逻辑
+            MemVariable * newVal = func->newMemVariable(arg->getType());
             newVal->setMemoryAddr(ARM32_SP_REG_NO, esp);
             esp += 4;
 
