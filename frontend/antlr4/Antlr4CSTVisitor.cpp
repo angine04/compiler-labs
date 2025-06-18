@@ -271,18 +271,20 @@ std::any MiniCCSTVisitor::visitLVal(MiniCParser::LValContext * ctx)
         // 没有数组访问，返回简单的ID节点
         return std::any(base_node);
     } else {
-        // 有数组访问，为每个维度创建数组访问节点
-        ast_node * current_node = base_node;
+        // 有数组访问，创建数组维度容器节点包含所有索引表达式
+        ast_node * array_dims = create_contain_node(ast_operator_type::AST_OP_ARRAY_DIM);
         
         for (auto exprCtx : ctx->expr()) {
             // 访问数组索引表达式
             auto index_node = std::any_cast<ast_node *>(visit(exprCtx));
-            
-            // 创建数组访问节点 AST_OP_ARRAY_REF
-            current_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_REF, current_node, index_node);
+            // 将索引表达式添加到维度容器中
+            (void) array_dims->insert_son_node(index_node);
         }
         
-        return std::any(current_node);
+        // 创建单个数组访问节点，包含变量名和所有维度
+        ast_node * array_ref = create_contain_node(ast_operator_type::AST_OP_ARRAY_REF, base_node, array_dims);
+        
+        return std::any(array_ref);
     }
 }
 
@@ -406,7 +408,7 @@ std::any MiniCCSTVisitor::visitVarDecl(MiniCParser::VarDeclContext * ctx)
     type_attr typeAttr = std::any_cast<type_attr>(visitBasicType(ctx->basicType()));
 
     for (auto & varCtx: ctx->varDef()) {
-        // 变量定义节点（可能是ID节点或初始化节点）
+        // 变量定义节点（可能是ID节点、初始化节点或数组声明节点）
         ast_node * var_node = std::any_cast<ast_node *>(visitVarDef(varCtx));
 
         // 创建类型节点
@@ -418,9 +420,9 @@ std::any MiniCCSTVisitor::visitVarDecl(MiniCParser::VarDeclContext * ctx)
             decl_node = var_node;
             decl_node->type = type_node->type;
         } else if (var_node->node_type == ast_operator_type::AST_OP_ARRAY_DECL) {
-            // 数组声明节点，设置类型并直接使用
+            // 数组声明节点，直接使用不改变其类型（保持AST_OP_ARRAY_DECL）
+            // 数组类型信息会在IR生成阶段根据AST结构推导
             decl_node = var_node;
-            decl_node->type = type_node->type;
         } else {
             // 普通ID节点，创建变量声明节点
             decl_node = ast_node::New(ast_operator_type::AST_OP_VAR_DECL, type_node, var_node, nullptr);
@@ -449,17 +451,22 @@ std::any MiniCCSTVisitor::visitVarDef(MiniCParser::VarDefContext * ctx)
     ast_node * var_node = id_node;
     if (!ctx->T_DEC_LITERAL().empty()) {
         // 有数组维度，创建数组声明节点
-        var_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node);
         
-        // 为每个维度添加大小节点
+        // 首先创建数组维度容器节点 (AST_OP_ARRAY_DIM)
+        ast_node * array_dims = create_contain_node(ast_operator_type::AST_OP_ARRAY_DIM);
+        
+        // 为每个维度添加大小节点到容器中
         for (auto decLiteral : ctx->T_DEC_LITERAL()) {
             std::string text = decLiteral->getText();
             uint32_t val = static_cast<uint32_t>(std::stoul(text, nullptr, 10));
             int64_t decLineNo = decLiteral->getSymbol()->getLine();
             digit_int_attr dim_attr = {val, decLineNo};
             ast_node * dim_node = ast_node::New(dim_attr);
-            (void) var_node->insert_son_node(dim_node);
+            (void) array_dims->insert_son_node(dim_node);
         }
+        
+        // 创建数组声明节点，包含ID节点和维度容器节点
+        var_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node, array_dims);
     }
 
     // 检查是否有初始化表达式
@@ -555,8 +562,8 @@ std::any MiniCCSTVisitor::visitFormalParam(MiniCParser::FormalParamContext * ctx
     // 处理数组维度 (T_L_BRACKET T_DEC_LITERAL? T_R_BRACKET)*
     // 对于函数参数，第一维可以为空(如 int arr[])，但后续维度必须有大小
     if (!ctx->T_L_BRACKET().empty()) {
-        // 这是数组参数，创建数组参数节点
-        ast_node * array_param_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node);
+        // 这是数组参数，创建数组维度容器节点
+        ast_node * array_dims = create_contain_node(ast_operator_type::AST_OP_ARRAY_DIM);
         
         // 处理每个维度
         size_t bracket_count = ctx->T_L_BRACKET().size();
@@ -571,15 +578,16 @@ std::any MiniCCSTVisitor::visitFormalParam(MiniCParser::FormalParamContext * ctx
                 int64_t decLineNo = decLiteral->getSymbol()->getLine();
                 digit_int_attr dim_attr = {val, decLineNo};
                 ast_node * dim_node = ast_node::New(dim_attr);
-                (void) array_param_node->insert_son_node(dim_node);
+                (void) array_dims->insert_son_node(dim_node);
             } else {
-                // 空维度（通常是第一维），创建一个特殊的0大小节点表示空维度
-                digit_int_attr dim_attr = {0, lineNo}; // 0表示未指定大小
-                ast_node * dim_node = ast_node::New(dim_attr);
-                (void) array_param_node->insert_son_node(dim_node);
+                // 空维度（通常是第一维），创建一个特殊的空维度节点
+                ast_node * empty_dim = create_contain_node(ast_operator_type::AST_OP_EMPTY_DIM);
+                (void) array_dims->insert_son_node(empty_dim);
             }
         }
         
+        // 创建数组声明节点，包含ID节点和维度容器节点
+        ast_node * array_param_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node, array_dims);
         id_node = array_param_node;
     }
 
