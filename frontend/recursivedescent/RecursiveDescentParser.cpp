@@ -15,13 +15,15 @@
 /// </table>
 ///
 #include <stdarg.h>
+#include <string.h>
 
 #include "AST.h"
 #include "AttrType.h"
 #include "RecursiveDescentFlex.h"
 #include "RecursiveDescentParser.h"
 #include "Type.h"
-#include "Type.h"
+#include "ir/Types/IntegerType.h"
+#include "ir/Types/VoidType.h"
 
 // 定义全局变量给词法分析使用，用于填充值
 RDSType rd_lval;
@@ -35,8 +37,14 @@ static int errno_num = 0;
 // 语法分析过程中的LookAhead，指向下一个Token
 static RDTokenType lookaheadTag = RDTokenType::T_EMPTY;
 
+// Forward Declarations
 static ast_node * Block();
-static ast_node * expr(); // Ensure expr is forward declared
+static ast_node * stmt(); // New statement parser
+static ast_node * ifStatement();
+static ast_node * whileStatement();
+static ast_node * breakStatement();
+static ast_node * continueStatement();
+static ast_node * expr(); 
 static ast_node * Expression();
 static ast_node * logicalOrExpr();
 static ast_node * logicalAndExpr();
@@ -45,6 +53,10 @@ static ast_node * relationalExpr();
 static ast_node * unaryExpr();
 static ast_node * Term();
 static ast_node * Factor();
+static ast_node * varDecl();
+static ast_node * returnStatement();
+static ast_node * assignExprStmtTail(ast_node * left_node);
+static ast_node * idtail(type_attr &type, var_id_attr &id);
 
 ///
 /// @brief 继续检查LookAhead指向的记号是否是T，用于符号的FIRST集合或Follow集合判断
@@ -147,7 +159,7 @@ static void realParamList(ast_node * realParamsNode)
 /// 其文法为 idTail: T_L_PAREN realParamList? T_R_PAREN | ε
 /// @return ast_node*
 ///
-static ast_node * idTail(var_id_attr & id)
+static ast_node * idTail_old(var_id_attr & id)
 {
     // 标识符节点
     ast_node * node = ast_node::New(id);
@@ -258,35 +270,12 @@ static ast_node * assignExprStmt()
     return assignExprStmtTail(expr_node);
 }
 
-// 前向声明
-static ast_node * ifStatement();
-static ast_node * whileStatement();
-static ast_node * breakStatement();
-static ast_node * continueStatement();
-
-///
-/// @brief 语句的识别，其文法为：
-/// statement: returnStatement | block | T_SEMICOLON | assignExprStmt T_SEMICOLON | ifStatement | whileStatement | breakStatement | continueStatement
-/// returnStatement : T_RETURN expr T_SEMICOLON
-/// assignExprStmt : expr assignExprStmtTail
-/// assignExprStmtTail : T_ASSIGN expr | ε
-/// ifStatement : T_IF T_L_PAREN expr T_R_PAREN statement (T_ELSE statement)?
-/// whileStatement : T_WHILE T_L_PAREN expr T_R_PAREN statement
-/// breakStatement : T_BREAK T_SEMICOLON
-/// continueStatement : T_CONTINUE T_SEMICOLON
-///
-/// @return AST的节点
-///
-static ast_node * statement()
+// THIS IS THE NEW stmt() FUNCTION
+static ast_node * stmt()
 {
     ast_node * node = nullptr;
-    if (F(T_RETURN)) {
-        node = returnStatement();
-    } else if (F(T_L_BRACE)) {
-        node = Block();
-    } else if (F(T_SEMICOLON)) {
-        advance();
-    } else if (F(T_IF)) {
+
+    if (F(T_IF)) {
         node = ifStatement();
     } else if (F(T_WHILE)) {
         node = whileStatement();
@@ -294,12 +283,25 @@ static ast_node * statement()
         node = breakStatement();
     } else if (F(T_CONTINUE)) {
         node = continueStatement();
-    } else if (F(T_ID) _(T_L_PAREN) _(T_DEC_LITERAL) _(T_HEX_LITERAL) _(T_OCT_LITERAL) _(T_SUB)) { // Updated condition
-        node = assignExprStmt();
+    } else if (F(T_RETURN)) {
+        node = returnStatement();
+    } else if (F(T_L_BRACE)) {
+        node = Block();
+    } else if (F(T_SEMICOLON)) {
+        match(T_SEMICOLON);
+        node = ast_node::New(ast_operator_type::AST_OP_EMPTY_STMT);
+    } else {
+        // Expression statement as default
+        node = expr();
+        if (node) {
+            node = assignExprStmtTail(node);
+        }
+
         if (!match(T_SEMICOLON)) {
-            semerror("语句后缺少分号");
+            semerror("语句后面缺少分号");
         }
     }
+
     return node;
 }
 
@@ -311,6 +313,35 @@ static ast_node * statement()
 ///
 static ast_node * processVarDef(type_attr & type, var_id_attr & id)
 {
+    // 创建变量ID节点
+    ast_node * type_node = create_type_node(type);
+    ast_node * id_node = ast_node::New(id);
+    ast_node * var_node = ast_node::New(ast_operator_type::AST_OP_VAR_DECL, type_node, id_node, nullptr);
+    var_node->name = id_node->name;
+
+    // 处理数组
+    while(F(T_L_BRACKET)) {
+        advance(); // consume [
+        if(F(T_DEC_LITERAL)) {
+            ast_node* size_node = ast_node::New(rd_lval.integer_num);
+            advance();
+            ast_node* new_array_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, var_node, size_node);
+            new_array_node->name = var_node->name;
+            var_node = new_array_node;
+        } else {
+            // 支持 int a[] 这种形式，但只在函数参数中。这里暂时不支持。
+            ast_node* new_array_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, var_node, ast_node::New(ast_operator_type::AST_OP_EMPTY_DIM));
+            new_array_node->name = var_node->name;
+            var_node = new_array_node;
+        }
+
+        if(!match(T_R_BRACKET)) {
+            semerror("数组声明缺少 `]`");
+            ast_node::Delete(var_node);
+            return nullptr;
+        }
+    }
+
     if (match(T_ASSIGN)) {
         // 有初始化值
         ast_node * expr_node = logicalOrExpr();
@@ -319,17 +350,14 @@ static ast_node * processVarDef(type_attr & type, var_id_attr & id)
             return nullptr;
         }
 
-        // 创建变量ID节点
-        ast_node * id_node = ast_node::New(id);
-
         // 创建初始化节点
-        ast_node * init_node = create_contain_node(ast_operator_type::AST_OP_VAR_INIT, id_node, expr_node);
+        ast_node * init_node = create_contain_node(ast_operator_type::AST_OP_VAR_INIT, var_node, expr_node);
         init_node->type = typeAttr2Type(type);
 
         return init_node;
     } else {
         // 普通变量声明
-        return createVarDeclNode(type, id);
+        return var_node;
     }
 }
 
@@ -340,13 +368,9 @@ static ast_node * processVarDef(type_attr & type, var_id_attr & id)
 ///
 static void varDeclList(ast_node * vardeclstmt_node)
 {
-    if (match(T_COMMA)) {
-
-        // 匹配成功，定义列表中有逗号
-
+    do {
         // 检查是否是标识符
         if (F(T_ID)) {
-
             // 定义列表中定义的变量，支持初始化
             var_id_attr id = rd_lval.var_id;
             advance(); // 跳过T_ID
@@ -354,7 +378,7 @@ static void varDeclList(ast_node * vardeclstmt_node)
             // 从变量声明语句节点中获取类型信息
             Type * stmt_type = vardeclstmt_node->type;
             type_attr type;
-            if (stmt_type->toString() == "i32") {
+            if (stmt_type->isIntegerType()) {
                 type.type = BasicType::TYPE_INT;
             } else {
                 type.type = BasicType::TYPE_VOID;
@@ -366,162 +390,81 @@ static void varDeclList(ast_node * vardeclstmt_node)
             if (var_node) {
                 vardeclstmt_node->insert_son_node(var_node);
             }
-
-            // 递归调用，不断追加变量定义
-            varDeclList(vardeclstmt_node);
         } else {
             semerror("逗号后必须是标识符");
         }
-    } else if (match(T_SEMICOLON)) {
+    } while (match(T_COMMA));
+
+
+    if (match(T_SEMICOLON)) {
         // 匹配成功，则说明只有前面的一个变量或者变量定义，正常结束
     } else {
         semerror("非法记号: %d", (int) lookaheadTag);
-
-        // 忽略该记号，继续检查
         advance();
-
-        // 继续检查后续的变量
-        varDeclList(vardeclstmt_node);
     }
 }
 
 ///
 /// @brief 局部变量的识别，支持数组声明，其文法为：
-/// varDecl : T_INT T_ID (T_L_BRACKET T_DEC_LITERAL T_R_BRACKET)* (T_ASSIGN Expression)? varDeclList
+/// varDecl : (const) T_INT T_ID ...
 ///
 /// @return ast_node* 局部变量声明节点
 ///
 static ast_node * varDecl()
 {
-    if (F(T_INT)) {
+    if (F(T_INT)) { // Support const
+        
+        if (!match(T_INT)) {
+            semerror("const must be followed by 'int'");
+            return nullptr;
+        }
 
         // 这里必须复制，而不能引用，因为rd_lval为全局，下一个记号识别后要被覆盖
-        type_attr type = rd_lval.type;
+        type_attr type;
+        type.type = BasicType::TYPE_INT;
 
-        // 跳过int类型的记号，指向下一个Token
-        advance();
+        // 创建变量声明语句节点
+        ast_node * stmt_node = create_contain_node(ast_operator_type::AST_OP_DECL_STMT);
+        stmt_node->type = typeAttr2Type(type);
 
-        // 检测是否是标识符
-        if (F(T_ID)) {
-
-            // 获取变量ID
-            var_id_attr id = rd_lval.var_id;
-
-            // 跳过标识符记号，指向下一个Token
-            advance();
-
-            // 创建变量声明语句节点
-            ast_node * stmt_node = create_contain_node(ast_operator_type::AST_OP_DECL_STMT);
-            stmt_node->type = typeAttr2Type(type);
-
-            // 处理数组维度
-            ast_node * var_node = ast_node::New(id);
-            bool is_array = false;
-            
-            while (F(T_L_BRACKET)) {
-                advance(); // 消费 '['
-                if (F(T_DEC_LITERAL)) {
-                    digit_int_attr array_size_attr = rd_lval.integer_num;
-                    ast_node * size_node = ast_node::New(array_size_attr);
-                    advance(); // 消费数字
-                    if (!match(T_R_BRACKET)) {
-                        semerror("数组声明缺少右中括号");
-                        if (var_node) ast_node::Delete(var_node);
-                        if (size_node) ast_node::Delete(size_node);
-                        return nullptr;
-                    }
-                    // 创建数组声明节点
-                    var_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, var_node, size_node);
-                    is_array = true;
-                } else {
-                    semerror("数组声明缺少大小");
-                    if (var_node) ast_node::Delete(var_node);
-                    return nullptr;
-                }
-            }
-            
-            // 处理初始化（如果有）
-            if (match(T_ASSIGN)) {
-                ast_node * init_expr = logicalOrExpr();
-                if (!init_expr) {
-                    semerror("变量初始化缺少表达式");
-                    if (var_node) ast_node::Delete(var_node);
-                    return nullptr;
-                }
-                // 创建初始化节点
-                var_node = create_contain_node(ast_operator_type::AST_OP_VAR_INIT, var_node, init_expr);
-            } else if (!is_array) {
-                // 普通变量声明
-                var_node = create_contain_node(ast_operator_type::AST_OP_VAR_DECL, ast_node::New(typeAttr2Type(type)), var_node);
-            }
-            
-            // 设置类型信息
-            if (var_node) {
-                var_node->type = typeAttr2Type(type);
-                stmt_node->insert_son_node(var_node);
-            }
-
-            // 处理后续的变量声明
-            varDeclList(stmt_node);
-
-            return stmt_node;
-
-        } else {
-            semerror("类型后要求的记号为标识符");
-            // 这里忽略继续检查下一个记号，为便于一次可检查出多个错误
-            // 当然可以直接退出循环，一旦有错就不再检查语法错误。
-        }
+        // 处理后续的变量声明
+        varDeclList(stmt_node);
+        return stmt_node;
     }
-
     return nullptr;
 }
 
-///
-/// @brief 块中的项目识别，其文法为：
-/// blockItem: statement | varDecl
-/// varDecl : T_INT T_ID varDeclList
-/// statement:T_RETURN expr T_SEMICOLON | lVal T_ASSIGN expr T_SEMICOLON | block | expr? T_SEMICOLON
-/// varDecl的FIRST集合为{T_INT}，
-/// statement的FIRST集合为{T_RETURN，T_ID，T_L_PAREN，T_SEMICOLON}
-/// FIRST集合不交，可正常识别
-/// 最终的文法为：
-/// blockItem: statement | varDecl
-/// varDecl : T_INT T_ID varDeclList
-/// statement:T_RETURN expr T_SEMICOLON | lVal T_ASSIGN expr T_SEMICOLON | block | expr? T_SEMICOLON
-/// @return 返回AST的节点
-///
+
+// THIS IS THE NEW BlockItem() FUNCTION
 static ast_node * BlockItem()
 {
     if (F(T_INT)) {
         return varDecl();
     } else {
-        return statement();
+        return stmt();
     }
+    return nullptr; // Add return for all paths
 }
 
-///
-/// @brief 块内语句列表识别，文法为BlockItemList : BlockItem+
-/// @return AST的节点
-///
+// THIS IS THE NEW BlockItemList() FUNCTION
 static void BlockItemList(ast_node * blockNode)
 {
-    for (;;) {
-
-        // 如果是右大括号，则结束循环，提升效率
-        if (F(T_R_BRACE)) {
-            break;
-        }
-
-        // 遍历BlockItem
+    while (!F(T_R_BRACE) && !F(T_EOF)) {
         ast_node * itemNode = BlockItem();
         if (itemNode) {
             blockNode->insert_son_node(itemNode);
         } else {
-            // 没有，则结束
-            break;
+            // Error recovery: consume a token to avoid infinite loop on error
+            if (!F(T_R_BRACE) && !F(T_EOF)) {
+                // semerror("Invalid statement or declaration in block.");
+                advance();
+            } else {
+                break; // a valid end of block
+            }
         }
     }
 }
+
 
 ///
 /// @brief 语句块识别，文法：Block -> T_L_BRACE BlockItemList? T_R_BRACE
@@ -535,7 +478,8 @@ static ast_node * Block()
         ast_node * blockNode = create_contain_node(ast_operator_type::AST_OP_BLOCK);
 
         // 空的语句块
-        if (match(T_R_BRACE)) {
+        if (F(T_R_BRACE)) { // Don't match yet
+            match(T_R_BRACE);
             return blockNode;
         }
 
@@ -555,40 +499,54 @@ static ast_node * Block()
     return nullptr;
 }
 
-///
-/// @brief 形参解析: formalParam: basicType T_ID
-/// @return ast_node* 形参节点
-///
-static ast_node * formalParam()
-{
-    if (F(T_INT) _(T_VOID)) {
-        type_attr type = rd_lval.type;
+static ast_node* formalParam() {
+    type_attr type_attribute;
+    if (F(T_INT)) {
+        type_attribute = rd_lval.type;
         advance();
-
-        if (F(T_ID)) {
-            var_id_attr id = rd_lval.var_id;
-            advance();
-
-            // 创建类型节点
-            ast_node * type_node = create_type_node(type);
-
-            // 创建变量ID节点
-            ast_node * id_node = ast_node::New(id);
-
-            // 释放字符串空间
-            free(id.id);
-
-            // 创建形参节点
-            return create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAM, type_node, id_node);
-        } else {
-            semerror("形参缺少标识符");
-        }
     } else {
-        semerror("形参缺少类型");
+        semerror("Expected a type for formal parameter");
+        return nullptr;
     }
 
-    return nullptr;
+    if (!F(T_ID)) {
+        semerror("Expected an identifier for formal parameter");
+        return nullptr;
+    }
+
+    var_id_attr id = rd_lval.var_id;
+    advance();
+
+    ast_node* type_node = create_type_node(type_attribute);
+    ast_node* id_node = ast_node::New(id);
+
+    ast_node* param_node = create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAM, type_node, id_node);
+
+    while (F(T_L_BRACKET)) {
+        advance(); // Consume '['
+        if (F(T_R_BRACKET)) { // Case for int a[]
+            advance(); // Consume ']'
+            param_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, param_node, ast_node::New(ast_operator_type::AST_OP_EMPTY_DIM));
+        } else if (F(T_DEC_LITERAL)) { // Case for int a[10]
+            ast_node* size_node = ast_node::New(rd_lval.integer_num);
+            advance();
+            if (!match(T_R_BRACKET)) {
+                semerror("Array parameter missing ']'");
+                ast_node::Delete(param_node);
+                ast_node::Delete(size_node);
+                return nullptr;
+            }
+            param_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, param_node, size_node);
+        } else {
+            semerror("Invalid token in array parameter declaration");
+            ast_node::Delete(param_node);
+            return nullptr;
+        }
+    }
+
+    return param_node;
 }
+
 
 ///
 /// @brief 形参列表解析: formalParamList: formalParam (T_COMMA formalParam)*
@@ -634,7 +592,7 @@ static ast_node * idtail(type_attr & type, var_id_attr & id)
         ast_node * formalParamsNode = nullptr;
 
         // 检查是否有形参
-        if (F(T_INT) _(T_VOID)) {
+        if (!F(T_R_PAREN) && (F(T_INT) || F(T_VOID))) {
             // 有形参，解析形参列表
             formalParamsNode = formalParamList();
             if (!formalParamsNode) {
@@ -645,10 +603,17 @@ static ast_node * idtail(type_attr & type, var_id_attr & id)
         if (match(T_R_PAREN)) {
             // 识别block
             ast_node * blockNode = Block();
+            if (blockNode == nullptr) {
+                semerror("Function definition is missing body");
+                if (formalParamsNode) ast_node::Delete(formalParamsNode);
+                return nullptr;
+            }
 
-            // 创建函数定义的节点，孩子有类型，函数名，语句块和形参
-            // create_func_def函数内会释放id中指向的标识符空间，切记，之后不要再释放，之前一定要是通过strdup函数或者malloc分配的空间
-            return create_func_def(type, id, blockNode, formalParamsNode);
+            // Deep copy var_id_attr to avoid use-after-free
+            var_id_attr id_copy = id;
+            id_copy.id = strdup(id.id);
+
+            return create_func_def(type, id_copy, blockNode, formalParamsNode);
         } else {
             semerror("函数定义缺少右小括号");
             if (formalParamsNode) {
@@ -660,125 +625,71 @@ static ast_node * idtail(type_attr & type, var_id_attr & id)
     }
 
     // 这里只能是变量定义
-    // 支持数组声明和变量初始化：T_ID (T_L_BRACKET T_DEC_LITERAL T_R_BRACKET)* (T_ASSIGN Expression)?
-
-    // 创建变量声明语句节点
-    ast_node * stmt_node = create_contain_node(ast_operator_type::AST_OP_DECL_STMT);
+    ast_node* stmt_node = create_contain_node(ast_operator_type::AST_OP_DECL_STMT);
     stmt_node->type = typeAttr2Type(type);
 
-    // 处理数组维度
-    ast_node * var_node = ast_node::New(id);
-    bool is_array = false;
-    
-    while (F(T_L_BRACKET)) {
-        advance(); // 消费 '['
-        if (F(T_DEC_LITERAL)) {
-            digit_int_attr array_size_attr = rd_lval.integer_num;
-            ast_node * size_node = ast_node::New(array_size_attr);
-            advance(); // 消费数字
-            if (!match(T_R_BRACKET)) {
-                semerror("数组声明缺少右中括号");
-                if (var_node) ast_node::Delete(var_node);
-                if (size_node) ast_node::Delete(size_node);
-                return nullptr;
-            }
-            // 创建数组声明节点
-            var_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, var_node, size_node);
-            is_array = true;
-        } else {
-            semerror("数组声明缺少大小");
-            if (var_node) ast_node::Delete(var_node);
-            return nullptr;
-        }
-    }
-    
-    // 处理初始化（如果有）
-    if (match(T_ASSIGN)) {
-        ast_node * init_expr = logicalOrExpr();
-        if (!init_expr) {
-            semerror("变量初始化缺少表达式");
-            if (var_node) ast_node::Delete(var_node);
-            return nullptr;
-        }
-        // 创建初始化节点
-        var_node = create_contain_node(ast_operator_type::AST_OP_VAR_INIT, var_node, init_expr);
-    } else if (!is_array) {
-        // 普通变量声明
-        var_node = create_contain_node(ast_operator_type::AST_OP_VAR_DECL, ast_node::New(typeAttr2Type(type)), var_node);
-    }
-    
-    // 设置类型信息
-    if (var_node) {
-        var_node->type = typeAttr2Type(type);
-        stmt_node->insert_son_node(var_node);
+    ast_node* current_decl = processVarDef(type, id);
+    if(current_decl) {
+        stmt_node->insert_son_node(current_decl);
     }
 
-    // 处理后续的变量声明
-    varDeclList(stmt_node);
+    while(match(T_COMMA)) {
+        if(!F(T_ID)) {
+            semerror("Expected identifier after comma in declaration list");
+            break;
+        }
+        var_id_attr next_id = rd_lval.var_id;
+        advance();
+        current_decl = processVarDef(type, next_id);
+        if(current_decl) {
+            stmt_node->insert_son_node(current_decl);
+        }
+    }
+
+    if(!match(T_SEMICOLON)) {
+        semerror("Declaration must end with a semicolon");
+    }
 
     return stmt_node;
 }
 
 // 编译单元识别，也就是文法的开始符号
-// 其文法（antlr4中定义的）：
-// compileUnit: (funcDef | varDecl)* EOF
-// funcDef: T_INT T_ID T_L_PAREN T_R_PAREN block
-// varDecl: basicType varDef (T_COMMA varDef)* T_SEMICOLON
-// 因funcDef的First集合为T_INT，varDecl的First集合也为T_INT，不可区分，不是LL(1)文法，
-// 再看第二个记号，第二个都是标识符，也不可区分
-// 再检查第三个记号，funcDef为左小括号，变量声明可以为逗号，可以为等号，可以为分号，可以区分
-// 因此可改造为 compileUnit : { T_INT T_ID idtail }，其中大括号代表闭包，类似上面的*
-// idtail : varDeclList | T_L_PAREN T_R_PAREN block
-// varDeclList可以定义多个变量，每次都增加一个逗号和标识符，直到最后一个记号为分号，即
-// varDeclList : T_COMMA T_ID <varDeclList> | T_SEMICOLON
-// 因此需要对文法进行改造，以便能够适合LL(1)文法的识别
-// 因此改造后的文法为：
-// 文法：compileUnit -> { T_INT T_ID idtail } EOF
-// idtail : varDeclList | T_L_PAREN T_R_PAREN block
-// varDeclList : T_COMMA T_ID varDeclList | T_SEMICOLON
-// 闭包代表一个循环，可以0以上的循环，最后一个为EOF
 static ast_node * compileUnit()
 {
     // 创建AST的根节点，编译单元运算符
     ast_node * cu_node = create_contain_node(ast_operator_type::AST_OP_COMPILE_UNIT);
 
     for (;;) {
-        // match匹配并LookAhead往前挪动
-        if (F(T_INT) _(T_VOID)) {
+        if(F(T_EOF)) {
+            break;
+        }
+
+        ast_node* decl_node = nullptr;
+
+        if (F(T_INT) || F(T_VOID)) {
             type_attr type = rd_lval.type;
-            // 跳过当前的记号，指向下一个记号
             advance();
-            // 检测是否是标识符
             if (F(T_ID)) {
-                // 获取标识符的值和定位信息
                 var_id_attr id = rd_lval.var_id;
-                // 跳过当前的记号，指向下一个记号
                 advance();
-                // 函数定义的开头为int
-                ast_node * node = idtail(type, id);
-                // 加入到父节点中，node为空时insert_son_node内部进行了忽略
-                (void) cu_node->insert_son_node(node);
+                decl_node = idtail(type, id);
             } else {
-                semerror("CompileUnit: Expected T_ID after T_INT, got %d (%s)", lookaheadTag, tokenValue.c_str());
+                semerror("CompileUnit: Expected T_ID after T_INT/T_VOID, got %d (%s)", lookaheadTag, tokenValue.c_str());
                 break;
             }
-        } else if (F(T_EOF)) {
-            // 文件解析完毕
-            break;
         } else {
-            // If not T_INT (start of varDecl/funcDef) and not T_EOF, then it's an error at this level.
-            if (lookaheadTag != RDTokenType::T_EMPTY &&
-                lookaheadTag !=
-                    RDTokenType::T_ERR) { // Avoid erroring on already reported lexer error or initial empty state
-                semerror("CompileUnit: Expected T_INT (for declaration/definition) or T_EOF, got token %d (%s)",
-                         lookaheadTag,
-                         tokenValue.c_str());
-            }
-            break;
+            semerror("CompileUnit: Expected T_INT, T_CONST, T_VOID or T_EOF, got token %d (%s)", lookaheadTag, tokenValue.c_str());
+            advance(); // consume token to avoid infinite loop
+            continue;
+        }
+
+        if (decl_node) {
+            cu_node->insert_son_node(decl_node);
         }
     }
     return cu_node;
 }
+
 
 ///
 /// @brief 采用递归下降分析法实现词法与语法分析生成抽象语法树
@@ -792,9 +703,7 @@ ast_node * rd_parse()
     ast_node * astRoot = compileUnit(); // Parse the compilation unit
 
     if (errno_num > 0) { // Check if any error occurred during parsing
-        // If astRoot was created but an error occurred, it might be partially formed.
-        // Depending on AST node ownership, cleanup might be needed here or handled by caller.
-        // For now, just return nullptr as per original logic for error indication.
+        if(astRoot) free_ast(astRoot);
         return nullptr;
     }
     return astRoot;
@@ -811,58 +720,77 @@ static ast_node * Factor()
     if (lookaheadTag == RDTokenType::T_DEC_LITERAL || lookaheadTag == RDTokenType::T_HEX_LITERAL ||
         lookaheadTag == RDTokenType::T_OCT_LITERAL) {
         // integer literal
-        // rd_lval.integer_num is already populated by rd_flex()
         node = ast_node::New(rd_lval.integer_num);
         advance(); // consume the literal token
     } else if (lookaheadTag == RDTokenType::T_ID) {
         // variable, array access, or function call
-        var_id_attr id_attr_val = rd_lval.var_id; // Copy before advance, as rd_lval is global
-        advance();                                // consume T_ID
+        var_id_attr id_attr_val = rd_lval.var_id; 
+        advance();                                
         
-        // 创建初始ID节点
-        node = ast_node::New(id_attr_val);
+        // Create the ID node first
+        ast_node * id_node = ast_node::New(id_attr_val);
         
-        // 处理数组访问或函数调用
-        while (F(T_L_BRACKET) || F(T_L_PAREN)) {
-            if (F(T_L_BRACKET)) {
-                // 数组访问
+        // Handle array access first - collect all dimensions
+        if (F(T_L_BRACKET)) {
+            std::vector<ast_node*> dimensions;
+            
+            // Collect all array dimensions
+            while (F(T_L_BRACKET)) {
                 advance(); // consume '['
-                ast_node * index_node = logicalOrExpr(); // 使用完整的表达式解析
+                ast_node * index_node = expr();
                 if (!index_node) {
                     semerror("数组访问缺少索引表达式");
-                    if (node) ast_node::Delete(node);
+                    ast_node::Delete(id_node);
+                    for (auto dim : dimensions) {
+                        ast_node::Delete(dim);
+                    }
                     return nullptr;
                 }
                 if (!match(T_R_BRACKET)) {
                     semerror("数组访问缺少右中括号");
-                    if (node) ast_node::Delete(node);
-                    if (index_node) ast_node::Delete(index_node);
+                    ast_node::Delete(id_node);
+                    ast_node::Delete(index_node);
+                    for (auto dim : dimensions) {
+                        ast_node::Delete(dim);
+                    }
                     return nullptr;
                 }
-                // 创建数组访问节点
-                node = create_contain_node(ast_operator_type::AST_OP_ARRAY_REF, node, index_node);
-            } else if (F(T_L_PAREN)) {
-                // 函数调用
-                advance(); // consume '('
-                ast_node * params_node = create_contain_node(ast_operator_type::AST_OP_FUNC_REAL_PARAMS);
-                realParamList(params_node);
-                if (!match(T_R_PAREN)) {
-                    semerror("函数调用缺少右括号");
-                    if (node) ast_node::Delete(node);
-                    if (params_node) ast_node::Delete(params_node);
-                    return nullptr;
-                }
-                // 创建函数调用节点
-                node = create_contain_node(ast_operator_type::AST_OP_FUNC_CALL, node, params_node);
-                break; // 函数调用后不再处理数组访问
+                dimensions.push_back(index_node);
             }
+            
+            // Create ArrayDimensions node with all dimensions
+            ast_node* array_dim_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DIM);
+            for (auto dim : dimensions) {
+                array_dim_node->insert_son_node(dim);
+            }
+            
+            // Create single ARRAY_REF node with ID and ArrayDimensions
+            node = create_contain_node(ast_operator_type::AST_OP_ARRAY_REF, id_node, array_dim_node);
+        } else {
+            // Just a variable, not an array access
+            node = id_node;
+        }
+        
+        // Handle function call after array access
+        if (F(T_L_PAREN)) {
+            advance(); // consume '('
+            ast_node* params_node = create_contain_node(ast_operator_type::AST_OP_FUNC_REAL_PARAMS);
+            if (!F(T_R_PAREN)) {
+                realParamList(params_node);
+            }
+            if (!match(T_R_PAREN)) {
+                semerror("函数调用缺少右括号");
+                ast_node::Delete(node);
+                ast_node::Delete(params_node);
+                return nullptr;
+            }
+            node = create_func_call(node, params_node);
         }
     } else if (lookaheadTag == RDTokenType::T_L_PAREN) {
         advance(); // consume '('
-        node = logicalOrExpr(); // 使用完整的表达式解析
+        node = expr(); 
         if (!match(RDTokenType::T_R_PAREN)) {
             semerror("Factor: Missing )");
-            // Potentially return error node or handle error recovery
             if (node) {
                 ast_node::Delete(node);
                 node = nullptr;
@@ -957,7 +885,7 @@ static ast_node * ifStatement()
         }
         
         // 条件表达式
-        ast_node * cond_node = logicalOrExpr();
+        ast_node * cond_node = expr();
         if (!cond_node) {
             semerror("if语句缺少条件表达式");
             return nullptr;
@@ -966,34 +894,20 @@ static ast_node * ifStatement()
         // 右括号
         if (!match(T_R_PAREN)) {
             semerror("if语句缺少右括号");
-            if (cond_node) ast_node::Delete(cond_node);
+            ast_node::Delete(cond_node);
             return nullptr;
         }
         
         // then语句
-        ast_node * then_node = statement();
-        if (!then_node) {
-            semerror("if语句缺少then语句");
-            if (cond_node) ast_node::Delete(cond_node);
-            return nullptr;
-        }
+        ast_node * then_node = stmt();
         
         // 检查是否有else
-        if (F(T_ELSE)) {
-            advance(); // 消费else
-            ast_node * else_node = statement();
-            if (!else_node) {
-                semerror("else语句缺少语句体");
-                if (cond_node) ast_node::Delete(cond_node);
-                if (then_node) ast_node::Delete(then_node);
-                return nullptr;
-            }
-            
-            // 创建带else的if节点
+        if (match(T_ELSE)) {
+            ast_node * else_node = stmt();
             return create_contain_node(ast_operator_type::AST_OP_IF, cond_node, then_node, else_node);
         } else {
-            // 创建不带else的if节点
-            return create_contain_node(ast_operator_type::AST_OP_IF, cond_node, then_node);
+            ast_node * else_node = nullptr;
+            return create_contain_node(ast_operator_type::AST_OP_IF, cond_node, then_node, else_node);
         }
     }
     return nullptr;
@@ -1013,7 +927,7 @@ static ast_node * whileStatement()
         }
         
         // 条件表达式
-        ast_node * cond_node = logicalOrExpr();
+        ast_node * cond_node = expr();
         if (!cond_node) {
             semerror("while语句缺少条件表达式");
             return nullptr;
@@ -1022,15 +936,15 @@ static ast_node * whileStatement()
         // 右括号
         if (!match(T_R_PAREN)) {
             semerror("while语句缺少右括号");
-            if (cond_node) ast_node::Delete(cond_node);
+            ast_node::Delete(cond_node);
             return nullptr;
         }
         
         // 循环体语句
-        ast_node * body_node = statement();
+        ast_node * body_node = stmt();
         if (!body_node) {
             semerror("while语句缺少循环体");
-            if (cond_node) ast_node::Delete(cond_node);
+            ast_node::Delete(cond_node);
             return nullptr;
         }
         
@@ -1049,9 +963,8 @@ static ast_node * breakStatement()
     if (match(T_BREAK)) {
         if (!match(T_SEMICOLON)) {
             semerror("break语句缺少分号");
-            return nullptr;
         }
-        return create_contain_node(ast_operator_type::AST_OP_BREAK);
+        return ast_node::New(ast_operator_type::AST_OP_BREAK);
     }
     return nullptr;
 }
@@ -1065,19 +978,11 @@ static ast_node * continueStatement()
     if (match(T_CONTINUE)) {
         if (!match(T_SEMICOLON)) {
             semerror("continue语句缺少分号");
-            return nullptr;
         }
-        return create_contain_node(ast_operator_type::AST_OP_CONTINUE);
+        return ast_node::New(ast_operator_type::AST_OP_CONTINUE);
     }
     return nullptr;
 }
-
-// 前向声明扩展表达式函数
-static ast_node * logicalOrExpr();
-static ast_node * logicalAndExpr();
-static ast_node * equalityExpr();
-static ast_node * relationalExpr();
-static ast_node * unaryExpr();
 
 ///
 /// @brief 逻辑或表达式
@@ -1092,7 +997,7 @@ static ast_node * logicalOrExpr()
         ast_node * right = logicalAndExpr();
         if (!right) {
             semerror("逻辑或运算符缺少右操作数");
-            if (node) ast_node::Delete(node);
+            ast_node::Delete(node);
             return nullptr;
         }
         node = create_contain_node(ast_operator_type::AST_OP_LOGICAL_OR, node, right);
@@ -1113,7 +1018,7 @@ static ast_node * logicalAndExpr()
         ast_node * right = equalityExpr();
         if (!right) {
             semerror("逻辑与运算符缺少右操作数");
-            if (node) ast_node::Delete(node);
+            ast_node::Delete(node);
             return nullptr;
         }
         node = create_contain_node(ast_operator_type::AST_OP_LOGICAL_AND, node, right);
@@ -1135,7 +1040,7 @@ static ast_node * equalityExpr()
         ast_node * right = relationalExpr();
         if (!right) {
             semerror("比较运算符缺少右操作数");
-            if (node) ast_node::Delete(node);
+            ast_node::Delete(node);
             return nullptr;
         }
         
@@ -1151,7 +1056,7 @@ static ast_node * equalityExpr()
 ///
 static ast_node * relationalExpr()
 {
-    ast_node * node = Expression(); // 使用现有的算术表达式
+    ast_node * node = Expression(); 
     
     while (F(T_LT) || F(T_LE) || F(T_GT) || F(T_GE)) {
         RDTokenType op = lookaheadTag;
@@ -1159,7 +1064,7 @@ static ast_node * relationalExpr()
         ast_node * right = Expression();
         if (!right) {
             semerror("关系运算符缺少右操作数");
-            if (node) ast_node::Delete(node);
+            ast_node::Delete(node);
             return nullptr;
         }
         
@@ -1169,7 +1074,10 @@ static ast_node * relationalExpr()
             case T_LE: ast_op = ast_operator_type::AST_OP_LE; break;
             case T_GT: ast_op = ast_operator_type::AST_OP_GT; break;
             case T_GE: ast_op = ast_operator_type::AST_OP_GE; break;
-            default: ast_op = ast_operator_type::AST_OP_LT; break;
+            default: // Should not happen
+                ast_node::Delete(node);
+                ast_node::Delete(right);
+                return nullptr;
         }
         node = create_contain_node(ast_op, node, right);
     }
@@ -1184,7 +1092,7 @@ static ast_node * unaryExpr()
 {
     if (F(T_LOGICAL_NOT)) {
         advance(); // 消费 !
-        ast_node * operand = unaryExpr(); // 递归处理一元表达式
+        ast_node * operand = unaryExpr(); 
         if (!operand) {
             semerror("逻辑非运算符缺少操作数");
             return nullptr;
