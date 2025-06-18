@@ -19,6 +19,7 @@
 #include <vector>
 #include <iostream>
 
+#include "Common.h"
 #include "Function.h"
 #include "Module.h"
 #include "PlatformArm32.h"
@@ -442,6 +443,37 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
 
             // 局部变量偏移设置
             inst->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
+            
+            // 调试信息
+            minic_log(LOG_DEBUG, "stackAlloc: Allocated memory for instruction %s at offset %d", 
+                     inst->getIRName().c_str(), -sp_esp);
+        }
+    }
+    
+    // 遍历内存变量（MemVariable），为它们分配栈空间
+    // 注意：需要添加对memVector的访问方法
+    for (auto memVar: func->getMemVector()) {
+        // 检查是否已经有内存地址
+        int32_t baseRegId = -1;
+        int64_t offset = -1;
+        bool hasMemAddr = memVar->getMemoryAddr(&baseRegId, &offset);
+        
+        if (!hasMemAddr || baseRegId == -1) {
+            // 需要分配内存地址
+            int32_t size = memVar->getType()->getSize();
+
+            // 32位ARM平台按照4字节的大小整数倍分配局部变量
+            size = (size + 3) & ~3;
+
+            // 累计当前作用域大小
+            sp_esp += size;
+
+            // 局部变量偏移设置
+            memVar->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
+            
+            // 调试信息
+            minic_log(LOG_DEBUG, "stackAlloc: Allocated memory for MemVariable %s at offset %d", 
+                     memVar->getIRName().c_str(), -sp_esp);
         }
     }
 

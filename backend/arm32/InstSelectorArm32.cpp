@@ -211,28 +211,108 @@ void InstSelectorArm32::translate_assign(Instruction * inst)
     int32_t arg1_regId = arg1->getRegId();
     int32_t result_regId = result->getRegId();
 
-    if (arg1_regId != -1) {
-        // 寄存器 => 内存
-        // 寄存器 => 寄存器
-
-        // r8 -> rs 可能用到r9
-        iloc.store_var(arg1_regId, result, ARM32_TMP_REG_NO);
-    } else if (result_regId != -1) {
-        // 内存变量 => 寄存器
-
-        iloc.load_var(result_regId, arg1);
+    // 检查是否是指针赋值（数组元素赋值）
+    if (result->getType()->isPointerType() && !arg1->getType()->isPointerType()) {
+        // 这是 *ptr = value 的情况（数组元素赋值）
+        // result是地址，arg1是要存储的值
+        
+        int32_t addr_regId = result->getRegId();
+        int32_t value_regId = arg1->getRegId();
+        
+        // 获取地址到寄存器
+        int32_t addr_reg;
+        if (addr_regId != -1) {
+            addr_reg = addr_regId;
+        } else {
+            addr_reg = simpleRegisterAllocator.Allocate(result);
+            iloc.load_var(addr_reg, result);
+        }
+        
+        // 获取值到寄存器
+        int32_t value_reg;
+        if (value_regId != -1) {
+            value_reg = value_regId;
+        } else {
+            value_reg = simpleRegisterAllocator.Allocate(arg1);
+            iloc.load_var(value_reg, arg1);
+        }
+        
+        // 存储值到地址：str value_reg, [addr_reg]
+        iloc.inst("str", PlatformArm32::regName[value_reg], "[" + PlatformArm32::regName[addr_reg] + "]");
+        
+        // 释放临时分配的寄存器
+        if (addr_regId == -1) {
+            simpleRegisterAllocator.free(result);
+        }
+        if (value_regId == -1) {
+            simpleRegisterAllocator.free(arg1);
+        }
+        
+    } else if (!result->getType()->isPointerType() && arg1->getType()->isPointerType()) {
+        // 这是 value = *ptr 的情况（数组元素读取）
+        // arg1是地址，result是目标变量
+        
+        int32_t addr_regId = arg1->getRegId();
+        int32_t result_regId = result->getRegId();
+        
+        // 获取地址到寄存器
+        int32_t addr_reg;
+        if (addr_regId != -1) {
+            addr_reg = addr_regId;
+        } else {
+            addr_reg = simpleRegisterAllocator.Allocate(arg1);
+            iloc.load_var(addr_reg, arg1);
+        }
+        
+        // 从地址加载值到寄存器
+        int32_t load_reg;
+        if (result_regId != -1) {
+            load_reg = result_regId;
+        } else {
+            load_reg = simpleRegisterAllocator.Allocate(result);
+        }
+        
+        // 从内存加载值：ldr load_reg, [addr_reg]
+        iloc.inst("ldr", PlatformArm32::regName[load_reg], "[" + PlatformArm32::regName[addr_reg] + "]");
+        
+        // 如果result不是寄存器变量，需要存储到内存
+        if (result_regId == -1) {
+            // 如果result不是寄存器变量，需要存储到内存
+            // 按照正常流程，所有临时变量都应该在stackAlloc阶段分配了内存地址
+            iloc.store_var(load_reg, result, ARM32_TMP_REG_NO);
+            simpleRegisterAllocator.free(result);
+        }
+        
+        // 释放临时分配的寄存器
+        if (addr_regId == -1) {
+            simpleRegisterAllocator.free(arg1);
+        }
+        
     } else {
-        // 内存变量 => 内存变量
+        // 普通赋值情况
+        if (arg1_regId != -1) {
+            // 寄存器 => 内存
+            // 寄存器 => 寄存器
 
-        int32_t temp_regno = simpleRegisterAllocator.Allocate();
+            // r8 -> rs 可能用到r9
+            iloc.store_var(arg1_regId, result, ARM32_TMP_REG_NO);
+        } else if (result_regId != -1) {
+            // 内存变量 => 寄存器
 
-        // arg1 -> r8
-        iloc.load_var(temp_regno, arg1);
+            iloc.load_var(result_regId, arg1);
+        } else {
+            // 内存变量 => 内存变量
 
-        // r8 -> rs 可能用到r9
-        iloc.store_var(temp_regno, result, ARM32_TMP_REG_NO);
+            int32_t temp_regno = simpleRegisterAllocator.Allocate();
 
-        simpleRegisterAllocator.free(temp_regno);
+            // arg1 -> r8
+            iloc.load_var(temp_regno, arg1);
+
+            // r8 -> rs 可能用到r9
+            iloc.store_var(temp_regno, result, ARM32_TMP_REG_NO);
+
+            simpleRegisterAllocator.free(temp_regno);
+        }
     }
 }
 

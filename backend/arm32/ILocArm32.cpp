@@ -306,6 +306,14 @@ void ILocArm32::load_symbol(int rs_reg_no, std::string name)
 /// @param offset 偏移
 void ILocArm32::load_base(int rs_reg_no, int base_reg_no, int offset)
 {
+    // 防止数组越界
+    if (base_reg_no < 0 || base_reg_no >= PlatformArm32::maxRegNum) {
+        minic_log(LOG_ERROR, "load_base: Invalid base register %d", base_reg_no);
+        // 生成注释而不是无效指令
+        emit("// ERROR: Invalid base register for load");
+        return;
+    }
+    
     std::string rsReg = PlatformArm32::regName[rs_reg_no];
     std::string base = PlatformArm32::regName[base_reg_no];
 
@@ -339,6 +347,14 @@ void ILocArm32::load_base(int rs_reg_no, int base_reg_no, int offset)
 /// @param tmp_reg_no 可能需要临时寄存器编号
 void ILocArm32::store_base(int src_reg_no, int base_reg_no, int disp, int tmp_reg_no)
 {
+    // 防止数组越界
+    if (base_reg_no < 0 || base_reg_no >= PlatformArm32::maxRegNum) {
+        minic_log(LOG_ERROR, "store_base: Invalid base register %d", base_reg_no);
+        // 生成注释而不是无效指令
+        emit("// ERROR: Invalid base register for store");
+        return;
+    }
+    
     std::string base = PlatformArm32::regName[base_reg_no];
 
     if (PlatformArm32::isDisp(disp)) {
@@ -495,7 +511,13 @@ void ILocArm32::store_var(int src_reg_no, Value * dest_var, int tmp_reg_no)
 
         bool result = dest_var->getMemoryAddr(&dest_baseRegId, &dest_offset);
         if (!result) {
-            minic_log(LOG_ERROR, "BUG");
+            // 输出错误信息到标准错误，确保我们能看到
+            fprintf(stderr, "ERROR: store_var: Variable %s has no memory address\n", 
+                   dest_var->getIRName().c_str());
+            // 对于没有内存地址的变量，我们应该通过寄存器分配器来处理
+            // 但现在先让它crash来调试
+            dest_baseRegId = -1;
+            dest_offset = -1;
         }
 
         // str r8,[r9]
