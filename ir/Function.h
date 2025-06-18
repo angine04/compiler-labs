@@ -85,6 +85,13 @@ public:
     {
         return varsVector;
     }
+    
+    /// @brief 获取函数内内存变量清单
+    /// @return 函数内内存变量清单
+    std::vector<MemVariable *> & getMemVector()
+    {
+        return memVector;
+    }
 
     ///
     /// @brief  检查是否是函数

@@ -393,6 +393,10 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
 
     // 遍历函数变量列表
     for (auto var: func->getVarValues()) {
+        
+        // 调试信息：打印变量信息
+        minic_log(LOG_DEBUG, "stackAlloc: Processing variable %s, type: %s, regId: %d", 
+                 var->getName().c_str(), var->getType()->toString().c_str(), var->getRegId());
 
         // 对于简单类型的寄存器分配策略，假定临时变量和局部变量都保存在栈中，属于内存
         // 而对于图着色等，临时变量一般是寄存器，局部变量也可能修改为寄存器
@@ -405,6 +409,10 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
             // 该变量没有分配寄存器
 
             int32_t size = var->getType()->getSize();
+            
+            // 调试信息：打印变量大小
+            minic_log(LOG_DEBUG, "stackAlloc: Variable %s size: %d bytes", 
+                     var->getName().c_str(), size);
 
             // 32位ARM平台按照4字节的大小整数倍分配局部变量
             size = (size + 3) & ~3;
@@ -419,6 +427,17 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
 
             // 局部变量偏移设置
             var->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
+            
+            // 调试信息
+            minic_log(LOG_DEBUG, "stackAlloc: Allocated memory for variable %s at offset %d", 
+                     var->getName().c_str(), -sp_esp);
+        } else {
+            // 调试信息：变量已经有内存地址或寄存器分配
+            int32_t baseRegId = -1;
+            int64_t offset = -1;
+            var->getMemoryAddr(&baseRegId, &offset);
+            minic_log(LOG_DEBUG, "stackAlloc: Variable %s already has regId=%d or memAddr (base=%d, offset=%ld)", 
+                     var->getName().c_str(), var->getRegId(), baseRegId, offset);
         }
     }
 

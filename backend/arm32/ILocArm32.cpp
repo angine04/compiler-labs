@@ -437,11 +437,18 @@ void ILocArm32::load_var(int rs_reg_no, Value * src_var)
             minic_log(LOG_ERROR, "BUG");
         }
 
-        // 对于栈内分配的局部数组，可直接在栈指针上进行移动与运算
-        // 但对于形参，其保存的是调用函数栈的数组的地址，需要读取出来
+        // 检查是否为数组类型
+        if (src_var->getType()->isArrayType()) {
+            // 对于数组类型，我们需要加载数组的首地址，而不是数组内容
+            // 使用lea（load effective address）而不是ldr
+            leaStack(rs_reg_no, var_baseRegId, var_offset);
+        } else {
+            // 对于栈内分配的局部数组，可直接在栈指针上进行移动与运算
+            // 但对于形参，其保存的是调用函数栈的数组的地址，需要读取出来
 
-        // ldr r8,[sp,#16]
-        load_base(rs_reg_no, var_baseRegId, var_offset);
+            // ldr r8,[sp,#16]
+            load_base(rs_reg_no, var_baseRegId, var_offset);
+        }
     }
 }
 
