@@ -418,11 +418,18 @@ void ILocArm32::load_var(int rs_reg_no, Value * src_var)
 
         // 读取全局变量的地址
         // movw r8, #:lower16:a
-        // movt r8, #:lower16:a
+        // movt r8, #:upper16:a
         load_symbol(rs_reg_no, globalVar->getName());
 
-        // ldr r8, [r8]
-        emit("ldr", PlatformArm32::regName[rs_reg_no], "[" + PlatformArm32::regName[rs_reg_no] + "]");
+        // 检查是否为数组类型
+        if (src_var->getType()->isArrayType()) {
+            // 对于全局数组，符号地址就是数组的首地址，不需要额外的ldr
+            // 直接使用load_symbol的结果即可
+        } else {
+            // 对于普通全局变量，需要从地址加载内容
+            // ldr r8, [r8]
+            emit("ldr", PlatformArm32::regName[rs_reg_no], "[" + PlatformArm32::regName[rs_reg_no] + "]");
+        }
 
     } else {
 
