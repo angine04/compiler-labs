@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 """
-Frontend testing script for minic compiler
+Frontend and backend testing script for minic compiler
 Tests flex+bison, antlr4, and recursive descent frontends
+Also supports backend testing with ARM assembly generation and execution
 """
 
 import os
@@ -29,10 +30,14 @@ class TestResult:
     output_matches_reference: bool
     exit_code_matches_reference: bool
     error_message: Optional[str] = None
+    # Backend-specific fields
+    asm_generated: bool = False
+    binary_compiled: bool = False
+    backend_compile_time: float = 0.0
 
 class FrontendTester:
     def __init__(self, project_root: str, timeout: int = 1, test_runtime: bool = True, frontends: List[str] = None, 
-                 include_for: bool = False, include_cfg: bool = False):
+                 include_for: bool = False, include_cfg: bool = False, backend_test: bool = False):
         self.project_root = Path(project_root)
         self.timeout = timeout
         self.test_runtime = test_runtime
