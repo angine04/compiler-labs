@@ -296,7 +296,7 @@ static ast_node * stmt()
         node = Block();
     } else if (F(T_SEMICOLON)) {
         match(T_SEMICOLON);
-        node = ast_node::New(ast_operator_type::AST_OP_EMPTY_STMT);
+        node = create_contain_node(ast_operator_type::AST_OP_EMPTY_STMT);
     } else {
         // Expression statement as default
         node = expr();
@@ -323,7 +323,7 @@ static ast_node * processVarDef(type_attr & type, var_id_attr & id)
     // 创建变量ID节点
     ast_node * type_node = create_type_node(type);
     ast_node * id_node = ast_node::New(id);
-    ast_node * var_node = ast_node::New(ast_operator_type::AST_OP_VAR_DECL, type_node, id_node, nullptr);
+    ast_node * var_node = create_contain_node(ast_operator_type::AST_OP_VAR_DECL, type_node, id_node);
     var_node->name = id_node->name;
 
     // 处理数组 - 与flex+bison保持一致
@@ -543,31 +543,60 @@ static ast_node* formalParam() {
     ast_node* type_node = create_type_node(type_attribute);
     ast_node* id_node = ast_node::New(id);
 
-    ast_node* param_node = create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAM, type_node, id_node);
-
-    while (F(T_L_BRACKET)) {
-        advance(); // Consume '['
-        if (F(T_R_BRACKET)) { // Case for int a[]
-            advance(); // Consume ']'
-            param_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, param_node, ast_node::New(ast_operator_type::AST_OP_EMPTY_DIM));
-        } else if (F(T_DEC_LITERAL)) { // Case for int a[10]
-            ast_node* size_node = ast_node::New(rd_lval.integer_num);
-            advance();
-            if (!match(T_R_BRACKET)) {
-                semerror("Array parameter missing ']'");
-                ast_node::Delete(param_node);
-                ast_node::Delete(size_node);
+    // 检查是否有数组维度
+    if (F(T_L_BRACKET)) {
+        std::vector<ast_node*> dimensions;
+        
+        // 收集所有数组维度
+        while (F(T_L_BRACKET)) {
+            advance(); // Consume '['
+            if (F(T_R_BRACKET)) { // Case for int a[]
+                advance(); // Consume ']'
+                ast_node* empty_dim = create_contain_node(ast_operator_type::AST_OP_EMPTY_DIM);
+                dimensions.push_back(empty_dim);
+            } else if (F(T_DEC_LITERAL)) { // Case for int a[10]
+                ast_node* size_node = ast_node::New(rd_lval.integer_num);
+                advance();
+                if (!match(T_R_BRACKET)) {
+                    semerror("Array parameter missing ']'");
+                    ast_node::Delete(type_node);
+                    ast_node::Delete(id_node);
+                    ast_node::Delete(size_node);
+                    for (auto dim : dimensions) {
+                        ast_node::Delete(dim);
+                    }
+                    return nullptr;
+                }
+                dimensions.push_back(size_node);
+            } else {
+                semerror("Invalid token in array parameter declaration");
+                ast_node::Delete(type_node);
+                ast_node::Delete(id_node);
+                for (auto dim : dimensions) {
+                    ast_node::Delete(dim);
+                }
                 return nullptr;
             }
-            param_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, param_node, size_node);
-        } else {
-            semerror("Invalid token in array parameter declaration");
-            ast_node::Delete(param_node);
-            return nullptr;
         }
+        
+        // 创建ArrayDimensions节点包含所有维度（与flex+bison一致）
+        ast_node* array_dim_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DIM);
+        for (auto dim : dimensions) {
+            array_dim_node->insert_son_node(dim);
+        }
+        
+        // 创建数组声明节点（与flex+bison一致）
+        ast_node* array_decl = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node, array_dim_node);
+        
+        // 创建形参节点，结构：FUNC_FORMAL_PARAM(type_node, array_decl)
+        ast_node* param_node = create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAM, type_node, array_decl);
+        
+        return param_node;
+    } else {
+        // 普通参数，结构：FUNC_FORMAL_PARAM(type_node, id_node)
+        ast_node* param_node = create_contain_node(ast_operator_type::AST_OP_FUNC_FORMAL_PARAM, type_node, id_node);
+        return param_node;
     }
-
-    return param_node;
 }
 
 
