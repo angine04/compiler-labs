@@ -210,24 +210,31 @@ static ast_node * expr()
 /// @return AST的节点
 static ast_node * returnStatement()
 {
-
-    if (match(T_RETURN)) {
-
-        // return语句的First集合元素为T_RETURN
-        // 若匹配，则说明是return语句
-
-        ast_node * expr_node = expr();
-
-        if (!match(T_SEMICOLON)) {
-
-            // 返回语句后没有分号
-            semerror("返回语句后没有分号");
+    if (!match(T_RETURN)) {
+        return nullptr;
+    }
+    
+    // 检查是否有返回值表达式
+    if (F(T_SEMICOLON)) {
+        // 空返回语句 (void function)
+        match(T_SEMICOLON);
+        return create_contain_node(ast_operator_type::AST_OP_RETURN);
+    } else {
+        // 有返回值的return语句
+        ast_node * expr_node = logicalOrExpr();
+        if (!expr_node) {
+            semerror("return语句缺少表达式");
+            return nullptr;
         }
-
+        
+        if (!match(T_SEMICOLON)) {
+            semerror("return语句后面缺少分号");
+            ast_node::Delete(expr_node);
+            return nullptr;
+        }
+        
         return create_contain_node(ast_operator_type::AST_OP_RETURN, expr_node);
     }
-
-    return nullptr;
 }
 
 /// 识别表达式尾部符号，文法： assignExprStmtTail : T_ASSIGN expr | ε
@@ -319,27 +326,43 @@ static ast_node * processVarDef(type_attr & type, var_id_attr & id)
     ast_node * var_node = ast_node::New(ast_operator_type::AST_OP_VAR_DECL, type_node, id_node, nullptr);
     var_node->name = id_node->name;
 
-    // 处理数组
-    while(F(T_L_BRACKET)) {
-        advance(); // consume [
-        if(F(T_DEC_LITERAL)) {
-            ast_node* size_node = ast_node::New(rd_lval.integer_num);
-            advance();
-            ast_node* new_array_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, var_node, size_node);
-            new_array_node->name = var_node->name;
-            var_node = new_array_node;
-        } else {
-            // 支持 int a[] 这种形式，但只在函数参数中。这里暂时不支持。
-            ast_node* new_array_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, var_node, ast_node::New(ast_operator_type::AST_OP_EMPTY_DIM));
-            new_array_node->name = var_node->name;
-            var_node = new_array_node;
-        }
+    // 处理数组 - 与flex+bison保持一致
+    if (F(T_L_BRACKET)) {
+        std::vector<ast_node*> dimensions;
+        
+        // 收集所有数组维度
+        while(F(T_L_BRACKET)) {
+            advance(); // consume [
+            if(F(T_DEC_LITERAL)) {
+                ast_node* size_node = ast_node::New(rd_lval.integer_num);
+                advance();
+                dimensions.push_back(size_node);
+            } else {
+                // 支持 int a[] 这种形式（函数参数中的空维度）
+                ast_node* empty_dim = create_contain_node(ast_operator_type::AST_OP_EMPTY_DIM);
+                dimensions.push_back(empty_dim);
+            }
 
-        if(!match(T_R_BRACKET)) {
-            semerror("数组声明缺少 `]`");
-            ast_node::Delete(var_node);
-            return nullptr;
+            if(!match(T_R_BRACKET)) {
+                semerror("数组声明缺少 `]`");
+                ast_node::Delete(var_node);
+                for (auto dim : dimensions) {
+                    ast_node::Delete(dim);
+                }
+                return nullptr;
+            }
         }
+        
+        // 创建ArrayDimensions节点包含所有维度（与flex+bison一致）
+        ast_node* array_dim_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DIM);
+        for (auto dim : dimensions) {
+            array_dim_node->insert_son_node(dim);
+        }
+        
+        // 创建单个ARRAY_DECL节点包含ID和ArrayDimensions（与flex+bison一致）
+        ast_node* array_decl_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DECL, id_node, array_dim_node);
+        array_decl_node->name = id_node->name;
+        var_node = array_decl_node;
     }
 
     if (match(T_ASSIGN)) {
@@ -734,7 +757,7 @@ static ast_node * Factor()
         if (F(T_L_BRACKET)) {
             std::vector<ast_node*> dimensions;
             
-            // Collect all array dimensions
+            // Collect all array dimensions like flex+bison does
             while (F(T_L_BRACKET)) {
                 advance(); // consume '['
                 ast_node * index_node = expr();
@@ -758,13 +781,13 @@ static ast_node * Factor()
                 dimensions.push_back(index_node);
             }
             
-            // Create ArrayDimensions node with all dimensions
+            // Create ArrayDimensions node with all dimensions (like flex+bison)
             ast_node* array_dim_node = create_contain_node(ast_operator_type::AST_OP_ARRAY_DIM);
             for (auto dim : dimensions) {
                 array_dim_node->insert_son_node(dim);
             }
             
-            // Create single ARRAY_REF node with ID and ArrayDimensions
+            // Create single ARRAY_REF node with ID and ArrayDimensions (like flex+bison)
             node = create_contain_node(ast_operator_type::AST_OP_ARRAY_REF, id_node, array_dim_node);
         } else {
             // Just a variable, not an array access
@@ -956,32 +979,38 @@ static ast_node * whileStatement()
 
 ///
 /// @brief break语句的识别
-/// @return AST的节点
+/// @return ast_node* break语句节点
 ///
 static ast_node * breakStatement()
 {
-    if (match(T_BREAK)) {
-        if (!match(T_SEMICOLON)) {
-            semerror("break语句缺少分号");
-        }
-        return ast_node::New(ast_operator_type::AST_OP_BREAK);
+    if (!match(T_BREAK)) {
+        return nullptr;
     }
-    return nullptr;
+    
+    if (!match(T_SEMICOLON)) {
+        semerror("break语句后面缺少分号");
+        return nullptr;
+    }
+    
+    return create_contain_node(ast_operator_type::AST_OP_BREAK);
 }
 
 ///
 /// @brief continue语句的识别
-/// @return AST的节点
+/// @return ast_node* continue语句节点
 ///
 static ast_node * continueStatement()
 {
-    if (match(T_CONTINUE)) {
-        if (!match(T_SEMICOLON)) {
-            semerror("continue语句缺少分号");
-        }
-        return ast_node::New(ast_operator_type::AST_OP_CONTINUE);
+    if (!match(T_CONTINUE)) {
+        return nullptr;
     }
-    return nullptr;
+    
+    if (!match(T_SEMICOLON)) {
+        semerror("continue语句后面缺少分号");
+        return nullptr;
+    }
+    
+    return create_contain_node(ast_operator_type::AST_OP_CONTINUE);
 }
 
 ///
