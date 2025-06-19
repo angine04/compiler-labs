@@ -254,13 +254,24 @@ void CodeGeneratorArm32::adjustFormalParamInsts(Function * func)
     }
 
     // 根据ARM版C语言的调用约定，除前4个外的实参进行值传递，逆序入栈
-    int64_t fp_esp = func->getProtectedReg().size() * 4;
+    // 保护寄存器占用的空间
+    int64_t fp_esp = 2 * 4;
+    if (func->getExistFuncCall()) {
+        fp_esp += 4;
+    }
+
     for (int k = 4; k < (int) params.size(); k++) {
 
         params[k]->setMemoryAddr(ARM32_FP_REG_NO, fp_esp);
 
         // 增加4字节，目前只支持int类型
-        fp_esp += params[k]->getType()->getSize();
+        int32_t size;
+        if (params[k]->getType()->isPointerType()) {
+            size = 4;
+        } else {
+            size = params[k]->getType()->getSize();
+        }
+        fp_esp += (size + 3) & ~3;
     }
 }
 
