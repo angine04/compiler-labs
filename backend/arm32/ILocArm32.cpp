@@ -432,7 +432,6 @@ void ILocArm32::load_var(int rs_reg_no, Value * src_var)
         }
 
     } else {
-
         // 栈+偏移的寻址方式
 
         // 栈帧偏移
@@ -450,10 +449,9 @@ void ILocArm32::load_var(int rs_reg_no, Value * src_var)
             // 使用lea（load effective address）而不是ldr
             leaStack(rs_reg_no, var_baseRegId, var_offset);
         } else {
-            // 对于栈内分配的局部数组，可直接在栈指针上进行移动与运算
-            // 但对于形参，其保存的是调用函数栈的数组的地址，需要读取出来
-
-            // ldr r8,[sp,#16]
+            // 对于非数组类型（包括指针类型的形参），加载变量的值
+            // 对于指针类型的形参，这会加载指针的值（数组地址）
+            // 对于普通变量，这会加载变量的值
             load_base(rs_reg_no, var_baseRegId, var_offset);
         }
     }
