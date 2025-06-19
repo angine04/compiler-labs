@@ -651,10 +651,71 @@ void InstSelectorArm32::translate_comparison(Instruction * inst)
     // here.
     iloc.inst("cmp", "", PlatformArm32::regName[r_s1], PlatformArm32::regName[r_s2]);
 
+    // 获取比较操作的类型，确定条件后缀
+    BinaryInstruction * cmp_inst = static_cast<BinaryInstruction *>(inst);
+    IRInstOperator comparison_op = cmp_inst->getOp();
+    
+    std::string cond_suffix;
+    switch (comparison_op) {
+        case IRInstOperator::IRINST_OP_CMP_EQ_I:
+            cond_suffix = "eq";
+            break;
+        case IRInstOperator::IRINST_OP_CMP_NE_I:
+            cond_suffix = "ne";
+            break;
+        case IRInstOperator::IRINST_OP_CMP_LT_I:
+            cond_suffix = "lt";
+            break;
+        case IRInstOperator::IRINST_OP_CMP_LE_I:
+            cond_suffix = "le";
+            break;
+        case IRInstOperator::IRINST_OP_CMP_GT_I:
+            cond_suffix = "gt";
+            break;
+        case IRInstOperator::IRINST_OP_CMP_GE_I:
+            cond_suffix = "ge";
+            break;
+        default:
+            fprintf(stderr, "[FATAL_ERROR] translate_comparison: Unexpected comparison operator %d.\n", (int) comparison_op);
+            assert(false);
+            return;
+    }
+
+    // 为比较结果分配寄存器或获取已分配的寄存器
+    int32_t result_reg = -1;
+    if (inst->getRegId() != -1) {
+        result_reg = inst->getRegId();
+    } else {
+        result_reg = simpleRegisterAllocator.Allocate(inst);
+    }
+
+    // 根据条件标志位设置结果寄存器的值
+    // mov<cond> result_reg, #1    ; 如果条件成立，设置为1
+    // mov<not_cond> result_reg, #0 ; 如果条件不成立，设置为0
+    
+    // 先设置为0
+    iloc.inst("movw", PlatformArm32::regName[result_reg], "#0");
+    
+    // 如果条件成立，设置为1
+    std::string conditional_mov = "mov" + cond_suffix;
+    iloc.inst(conditional_mov, PlatformArm32::regName[result_reg], "#1");
+
+    // 如果结果变量不在寄存器中，需要存储到内存
+    if (inst->getRegId() == -1) {
+        iloc.store_var(result_reg, inst, ARM32_TMP_REG_NO);
+        simpleRegisterAllocator.free(inst);
+    }
+
     // Register deallocation would depend on the strategy of SimpleRegisterAllocator.
     // If Allocate(Value*) reserves it for the Value's lifetime or a broader scope, no free here.
     // If registers were allocated as temporary scratch registers just for this op, they might be freed.
     // For now, assuming SimpleRegisterAllocator handles this or they are freed later.
+    if (src1->getRegId() == -1) {
+        simpleRegisterAllocator.free(src1);
+    }
+    if (src2->getRegId() == -1) {
+        simpleRegisterAllocator.free(src2);
+    }
 }
 
 /// @brief 条件分支指令翻译成ARM32汇编

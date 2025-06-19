@@ -1150,7 +1150,7 @@ static ast_node * unaryExpr()
 {
     if (F(T_LOGICAL_NOT)) {
         advance(); // 消费 !
-        ast_node * operand = unaryExpr(); 
+        ast_node * operand = unaryExpr(); // 递归处理连续的一元运算符
         if (!operand) {
             semerror("逻辑非运算符缺少操作数");
             return nullptr;
@@ -1158,7 +1158,7 @@ static ast_node * unaryExpr()
         return create_contain_node(ast_operator_type::AST_OP_LOGICAL_NOT, operand);
     } else if (F(T_SUB)) {
         advance(); // 消费 -
-        ast_node * operand = unaryExpr();
+        ast_node * operand = unaryExpr(); // 递归处理连续的一元运算符
         if (!operand) {
             semerror("负号运算符缺少操作数");
             return nullptr;

@@ -64,21 +64,10 @@ public:
     std::string getFullString() const
     {
         if (isArrayParam && originalArrayType) {
-            // 数组形参格式：i32 %t0[0] 或 i32 %t0[0][2][2] （多维）
-            ArrayType * arrType = dynamic_cast<ArrayType *>(originalArrayType);
-            if (arrType) {
-                std::string dimensionStr = "[0]"; // 第一维总是[0]
-                
-                // 为多维数组添加剩余维度
-                const std::vector<int32_t> & dims = arrType->getDimensions();
-                for (size_t i = 1; i < dims.size(); ++i) {
-                    dimensionStr += "[" + std::to_string(dims[i]) + "]";
-                }
-                
-                return arrType->getElementType()->toString() + " " + getIRName() + dimensionStr;
-            }
+            // 数组形参在函数签名中应显示为指针类型
+            return const_cast<FormalParam*>(this)->getType()->toString() + " " + const_cast<FormalParam*>(this)->getIRName();
         }
-        return getTypeString() + " " + getIRName();
+        return getTypeString() + " " + const_cast<FormalParam*>(this)->getIRName();
     }
 
     /// @brief 判断是否是数组形参

@@ -167,7 +167,17 @@ class BackendTester:
             except:
                 pass
         
-        return exit_code != -999, output, exit_code
+        # Check for runtime errors (segfaults, etc.)
+        # Only negative exit codes indicate signal-based termination in subprocess
+        # Exit codes 128-255 can be normal program return values (e.g., return -1 becomes 255)
+        if exit_code == -999:
+            runtime_success = False  # Timeout
+        elif exit_code < 0:
+            runtime_success = False  # Signal-based termination (negative signal number from subprocess)
+        else:
+            runtime_success = True  # Normal exit codes (0-255 are all valid)
+        
+        return runtime_success, output, exit_code
     
     def run_reference(self, ir_file: str, test_name: str) -> Tuple[bool, str, int]:
         """Run reference IRCompiler"""
@@ -190,7 +200,15 @@ class BackendTester:
             except:
                 pass
         
-        return exit_code != -999, output, exit_code
+        # Check for runtime errors (segfaults, etc.)
+        if exit_code == -999:
+            runtime_success = False  # Timeout
+        elif exit_code < 0:
+            runtime_success = False  # Signal-based termination (negative signal number from subprocess)
+        else:
+            runtime_success = True  # Normal exit codes (0-255 are all valid)
+        
+        return runtime_success, output, exit_code
     
     def test_single_file(self, test_file: Path) -> List[TestResult]:
         """Test single file with all frontends"""
@@ -249,8 +267,22 @@ class BackendTester:
             runtime_success, output, exit_code = self.run_binary(binary_file, test_name, frontend)
             result.runtime_success = runtime_success
             if not runtime_success:
-                result.error_message = "Runtime failed or timeout"
-                print("RUNTIME FAILED")
+                if exit_code == -999:
+                    result.error_message = "Runtime timeout"
+                    print("RUNTIME TIMEOUT")
+                elif exit_code == -11 or exit_code == 139:  # SIGSEGV
+                    result.error_message = "Segmentation fault (SIGSEGV)"
+                    print("RUNTIME FAILED (SIGSEGV)")
+                elif exit_code == -6 or exit_code == 134:  # SIGABRT
+                    result.error_message = "Aborted (SIGABRT)"
+                    print("RUNTIME FAILED (SIGABRT)")
+                elif exit_code < 0:
+                    signal_num = -exit_code
+                    result.error_message = f"Runtime error (signal {signal_num})"
+                    print(f"RUNTIME FAILED (SIG{signal_num})")
+                else:
+                    result.error_message = f"Runtime error (exit code {exit_code})"
+                    print(f"RUNTIME FAILED ({exit_code})")
                 result.total_time = time.time() - start_time
                 results.append(result)
                 continue
