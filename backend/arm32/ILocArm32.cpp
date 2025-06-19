@@ -396,7 +396,6 @@ void ILocArm32::mov_reg(int rs_reg_no, int src_reg_no)
 /// @param src_var 源操作数
 void ILocArm32::load_var(int rs_reg_no, Value * src_var)
 {
-
     if (Instanceof(constVal, ConstInt *, src_var)) {
         // 整型常量
 

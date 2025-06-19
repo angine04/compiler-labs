@@ -1,4 +1,4 @@
-﻿///
+///
 /// @file InstSelectorArm32.cpp
 /// @brief 指令选择器-ARM32的实现
 /// @author zenglj (zenglj@live.com)
@@ -175,6 +175,21 @@ void InstSelectorArm32::translate_entry(Instruction * inst)
 
     // 为fun分配栈帧，含局部变量、函数调用值传递的空间等
     iloc.allocStack(func, ARM32_TMP_REG_NO);
+
+    // Manually store the first 4 (or fewer) incoming arguments from registers (r0-r3)
+    // to their assigned stack slots.
+    auto & params = func->getParams();
+    for (size_t i = 0; i < params.size() && i < 4; ++i) {
+        FormalParam * param = params[i];
+        // The physical register where the argument is passed (r0, r1, r2, r3)
+        int32_t arg_reg_no = i;
+
+        // stackAlloc should have assigned a memory location to each parameter.
+        // We use store_var to move the value from the physical register to that stack slot.
+        // The temp_reg (ARM32_TMP_REG_NO) is used by store_var if the offset is too large,
+        // which shouldn't be the case here, but it's required by the function signature.
+        iloc.store_var(arg_reg_no, param, ARM32_TMP_REG_NO);
+    }
 }
 
 /// @brief 函数出口指令翻译成ARM32汇编
@@ -495,86 +510,29 @@ void InstSelectorArm32::translate_rem_int32(Instruction * inst)
 /// @param inst IR指令
 void InstSelectorArm32::translate_call(Instruction * inst)
 {
-    FuncCallInstruction * callInst = dynamic_cast<FuncCallInstruction *>(inst);
+    FuncCallInstruction * callInst = static_cast<FuncCallInstruction *>(inst);
 
-    int32_t operandNum = callInst->getOperandsNum();
-
-    if (operandNum != realArgCount) {
-
-        // 两者不一致 也可能没有ARG指令，正常
-        if (realArgCount != 0) {
-
-            minic_log(LOG_ERROR, "ARG指令的个数与调用函数个数不一致");
-        }
-    }
-
-    if (operandNum) {
-
-        // 强制占用这几个寄存器参数传递的寄存器
-        simpleRegisterAllocator.Allocate(0);
-        simpleRegisterAllocator.Allocate(1);
-        simpleRegisterAllocator.Allocate(2);
-        simpleRegisterAllocator.Allocate(3);
-
-        // 前四个的后面参数采用栈传递
-        int esp = 0;
-        for (int32_t k = 4; k < operandNum; k++) {
-
-            auto arg = callInst->getOperand(k);
-
-            // 新建一个内存变量，用于栈传值到形参变量中
-            // 不要使用指针类型，使用普通类型来避免触发指针赋值逻辑
-            MemVariable * newVal = func->newMemVariable(arg->getType());
-            newVal->setMemoryAddr(ARM32_SP_REG_NO, esp);
-            esp += 4;
-
-            Instruction * assignInst = new MoveInstruction(func, newVal, arg);
-
-            // 翻译赋值指令
-            translate_assign(assignInst);
-
-            delete assignInst;
-        }
-
-        for (int32_t k = 0; k < operandNum && k < 4; k++) {
-
-            auto arg = callInst->getOperand(k);
-
-            // 检查实参的类型是否是临时变量。
-            // 如果是临时变量，该变量可更改为寄存器变量即可，或者设置寄存器号
-            // 如果不是，则必须开辟一个寄存器变量，然后赋值即可
-
-            Instruction * assignInst = new MoveInstruction(func, PlatformArm32::intRegVal[k], arg);
-
-            // 翻译赋值指令
-            translate_assign(assignInst);
-
-            delete assignInst;
-        }
-    }
+    // The logic to move arguments into registers (r0-r3) or onto the stack
+    // has already been handled by inserting MoveInstructions in `adjustFuncCallInsts`.
+    // Those MoveInstructions are translated independently by `translate_assign`.
+    // This function's only job is to emit the actual `bl` instruction
+    // and handle the return value.
 
     iloc.call_fun(callInst->getName());
 
-    if (operandNum) {
-        simpleRegisterAllocator.free(0);
-        simpleRegisterAllocator.free(1);
-        simpleRegisterAllocator.free(2);
-        simpleRegisterAllocator.free(3);
-    }
-
-    // 赋值指令
+    // Handle the return value, if any.
     if (callInst->hasResultValue()) {
-
-        // 新建一个赋值操作
+        // The return value is in r0. Create a move from r0 to the result value.
         Instruction * assignInst = new MoveInstruction(func, callInst, PlatformArm32::intRegVal[0]);
 
-        // 翻译赋值指令
+        // Translate this move instruction immediately.
         translate_assign(assignInst);
 
         delete assignInst;
     }
 
-    // 函数调用后清零，使得下次可正常统计
+    // The argument count check was part of the old, flawed logic.
+    // We'll rely on the IR being correct.
     realArgCount = 0;
 }
 
