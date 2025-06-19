@@ -306,6 +306,7 @@ void ILocArm32::load_symbol(int rs_reg_no, std::string name)
 /// @param offset 偏移
 void ILocArm32::load_base(int rs_reg_no, int base_reg_no, int offset)
 {
+    comment("--- load_base from [" + PlatformArm32::regName[base_reg_no] + ", #" + std::to_string(offset) + "]");
     // 防止数组越界
     if (base_reg_no < 0 || base_reg_no >= PlatformArm32::maxRegNum) {
         minic_log(LOG_ERROR, "load_base: Invalid base register %d", base_reg_no);
@@ -347,6 +348,7 @@ void ILocArm32::load_base(int rs_reg_no, int base_reg_no, int offset)
 /// @param tmp_reg_no 可能需要临时寄存器编号
 void ILocArm32::store_base(int src_reg_no, int base_reg_no, int disp, int tmp_reg_no)
 {
+    comment("--- store_base to [" + PlatformArm32::regName[base_reg_no] + ", #" + std::to_string(disp) + "]");
     // 防止数组越界
     if (base_reg_no < 0 || base_reg_no >= PlatformArm32::maxRegNum) {
         minic_log(LOG_ERROR, "store_base: Invalid base register %d", base_reg_no);

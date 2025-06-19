@@ -35,6 +35,7 @@ FuncCallInstruction::FuncCallInstruction(Function * _func,
     for (auto & val: _srcVal) {
         addOperand(val);
     }
+    _func->setExistFuncCall(true);
 }
 
 /// @brief 转换成字符串显示

@@ -291,6 +291,10 @@ void CodeGeneratorArm32::adjustFuncCallInsts(Function * func)
         // 检查是否是函数调用指令，并且含有返回值
         if (Instanceof(callInst, FuncCallInstruction *, *pIter)) {
 
+            // As soon as we see a function call, we know this function is non-leaf.
+            // This fixes the stack offset calculation for incoming parameters.
+            func->setExistFuncCall(true);
+
             // 实参前四个要寄存器传值，其它参数通过栈传递
 
             int32_t argNum = callInst->getOperandsNum();
@@ -312,7 +316,9 @@ void CodeGeneratorArm32::adjustFuncCallInsts(Function * func)
                 // ---------------------
 
                 // 新建一个内存变量，把实参的值保存到栈中，以便栈传值，其寻址为SP + 非负偏移
-                MemVariable * newVal = func->newMemVariable(IntegerType::getTypeInt());
+                // The temporary variable MUST have the same type as the argument
+                // to prevent incorrect dereferencing in translate_assign.
+                MemVariable * newVal = func->newMemVariable(arg->getType());
                 newVal->setMemoryAddr(ARM32_SP_REG_NO, esp);
                 esp += 4;
 
