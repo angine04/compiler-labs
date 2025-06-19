@@ -396,7 +396,12 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
     for (auto param : func->getParams()) {
         // 检查参数是否已经有内存地址，防止重复分配
         if (!param->getMemoryAddr()) {
-            int32_t size = param->getType()->getSize();
+            int32_t size;
+            if (param->getType()->isPointerType()) {
+                size = 4;
+            } else {
+                size = param->getType()->getSize();
+            }
             size = (size + 3) & ~3;
             sp_esp += size;
             param->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
@@ -412,7 +417,12 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
         if ((var->getRegId() == -1) && (!var->getMemoryAddr())) {
 
             // 该变量没有分配寄存器
-            int32_t size = var->getType()->getSize();
+            int32_t size;
+            if (var->getType()->isPointerType()) {
+                size = 4;
+            } else {
+                size = var->getType()->getSize();
+            }
             size = (size + 3) & ~3;
             sp_esp += size;
             var->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
@@ -423,7 +433,12 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
     for (auto inst: func->getInterCode().getInsts()) {
         if (inst->hasResultValue() && (inst->getRegId() == -1) && (!inst->getMemoryAddr())) {
             // 有值，并且没有分配寄存器
-            int32_t size = inst->getType()->getSize();
+            int32_t size;
+            if (inst->getType()->isPointerType()) {
+                size = 4;
+            } else {
+                size = inst->getType()->getSize();
+            }
             size = (size + 3) & ~3;
             sp_esp += size;
             inst->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
@@ -439,7 +454,12 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
         
         if (!hasMemAddr || baseRegId == -1) {
             // 需要分配内存地址
-            int32_t size = memVar->getType()->getSize();
+            int32_t size;
+            if (memVar->getType()->isPointerType()) {
+                size = 4;
+            } else {
+                size = memVar->getType()->getSize();
+            }
             size = (size + 3) & ~3;
             sp_esp += size;
             memVar->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
