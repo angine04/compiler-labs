@@ -248,8 +248,9 @@ void InstSelectorArm32::translate_assign(Instruction * inst)
             simpleRegisterAllocator.free(arg1);
         }
         
-    } else if (!result->getType()->isPointerType() && arg1->getType()->isPointerType()) {
+    } else if (!result->getType()->isPointerType() && arg1->getType()->isPointerType() && arg1->getRegId() == -1) {
         // 这是 value = *ptr 的情况（数组元素读取）
+        // 但是需要确保arg1不是寄存器变量，否则它是指针变量赋值而不是指针解引用
         // arg1是地址，result是目标变量
         
         int32_t addr_regId = arg1->getRegId();
@@ -289,7 +290,7 @@ void InstSelectorArm32::translate_assign(Instruction * inst)
         }
         
     } else {
-        // 普通赋值情况
+        // 普通赋值情况，包括指针类型变量到整型寄存器的赋值（函数参数传递）
         if (arg1_regId != -1) {
             // 寄存器 => 内存
             // 寄存器 => 寄存器

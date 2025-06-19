@@ -366,8 +366,8 @@ void CodeGeneratorArm32::adjustFuncCallInsts(Function * func)
     }
 }
 
-/// @brief 栈空间分配
-/// @param func 要处理的函数
+/// @brief 栈帧分配
+/// @param func
 void CodeGeneratorArm32::stackAlloc(Function * func)
 {
     // 栈内分配的空间除了寄存器保护所分配的空间之外，还需要管理如下的空间
@@ -391,86 +391,46 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
 
     int32_t sp_esp = 0;
 
+    // --- START of my new code ---
+    // 为所有形参分配栈空间
+    for (auto param : func->getParams()) {
+        // 检查参数是否已经有内存地址，防止重复分配
+        if (!param->getMemoryAddr()) {
+            int32_t size = param->getType()->getSize();
+            size = (size + 3) & ~3;
+            sp_esp += size;
+            param->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
+        }
+    }
+    // --- END of my new code ---
+
     // 遍历函数变量列表
     for (auto var: func->getVarValues()) {
         
-        // 调试信息：打印变量信息（可选）
-        // minic_log(LOG_DEBUG, "stackAlloc: Processing variable %s, type: %s, regId: %d", 
-        //          var->getName().c_str(), var->getType()->toString().c_str(), var->getRegId());
-
-        // 对于简单类型的寄存器分配策略，假定临时变量和局部变量都保存在栈中，属于内存
-        // 而对于图着色等，临时变量一般是寄存器，局部变量也可能修改为寄存器
-        // TODO 考虑如何进行分配使得临时变量尽量保存在寄存器中，作为优化点考虑
-
         // regId不为-1，则说明该变量分配为寄存器
         // baseRegNo不等于-1，则说明该变量肯定在栈上，属于内存变量，之前肯定已经分配过
         if ((var->getRegId() == -1) && (!var->getMemoryAddr())) {
 
             // 该变量没有分配寄存器
-
             int32_t size = var->getType()->getSize();
-            
-            // 调试信息：打印变量大小（可选）
-            // minic_log(LOG_DEBUG, "stackAlloc: Variable %s size: %d bytes", 
-            //          var->getName().c_str(), size);
-
-            // 32位ARM平台按照4字节的大小整数倍分配局部变量
             size = (size + 3) & ~3;
-
-            // 累计当前作用域大小
             sp_esp += size;
-
-            // 这里要注意检查变量栈的偏移范围。一般采用机制寄存器+立即数方式间接寻址
-            // 若立即数满足要求，可采用基址寄存器+立即数变量的方式访问变量
-            // 否则，需要先把偏移量放到寄存器中，然后机制寄存器+偏移寄存器来寻址
-            // 之后需要对所有使用到该Value的指令在寄存器分配前要变换。
-
-            // 局部变量偏移设置
             var->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
-            
-            // 调试信息（可选）
-            // minic_log(LOG_DEBUG, "stackAlloc: Allocated memory for variable %s at offset %d", 
-            //          var->getName().c_str(), -sp_esp);
-        } else {
-            // 调试信息：变量已经有内存地址或寄存器分配（可选）
-            // int32_t baseRegId = -1;
-            // int64_t offset = -1;
-            // var->getMemoryAddr(&baseRegId, &offset);
-            // minic_log(LOG_DEBUG, "stackAlloc: Variable %s already has regId=%d or memAddr (base=%d, offset=%ld)", 
-            //          var->getName().c_str(), var->getRegId(), baseRegId, offset);
         }
     }
 
     // 遍历包含有值的指令，也就是临时变量
     for (auto inst: func->getInterCode().getInsts()) {
-
-        if (inst->hasResultValue() && (inst->getRegId() == -1)) {
+        if (inst->hasResultValue() && (inst->getRegId() == -1) && (!inst->getMemoryAddr())) {
             // 有值，并且没有分配寄存器
-
             int32_t size = inst->getType()->getSize();
-
-            // 32位ARM平台按照4字节的大小整数倍分配局部变量
             size = (size + 3) & ~3;
-
-            // 累计当前作用域大小
             sp_esp += size;
-
-            // 这里要注意检查变量栈的偏移范围。一般采用机制寄存器+立即数方式间接寻址
-            // 若立即数满足要求，可采用基址寄存器+立即数变量的方式访问变量
-            // 否则，需要先把偏移量放到寄存器中，然后机制寄存器+偏移寄存器来寻址
-            // 之后需要对所有使用到该Value的指令在寄存器分配前要变换。
-
-            // 局部变量偏移设置
             inst->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
-            
-            // 调试信息（可选）
-            // minic_log(LOG_DEBUG, "stackAlloc: Allocated memory for instruction %s at offset %d", 
-            //          inst->getIRName().c_str(), -sp_esp);
         }
     }
     
     // 遍历内存变量（MemVariable），为它们分配栈空间
-    // 注意：需要添加对memVector的访问方法
     for (auto memVar: func->getMemVector()) {
         // 检查是否已经有内存地址
         int32_t baseRegId = -1;
@@ -480,19 +440,9 @@ void CodeGeneratorArm32::stackAlloc(Function * func)
         if (!hasMemAddr || baseRegId == -1) {
             // 需要分配内存地址
             int32_t size = memVar->getType()->getSize();
-
-            // 32位ARM平台按照4字节的大小整数倍分配局部变量
             size = (size + 3) & ~3;
-
-            // 累计当前作用域大小
             sp_esp += size;
-
-            // 局部变量偏移设置
             memVar->setMemoryAddr(ARM32_FP_REG_NO, -sp_esp);
-            
-            // 调试信息（可选）
-            // minic_log(LOG_DEBUG, "stackAlloc: Allocated memory for MemVariable %s at offset %d", 
-            //          memVar->getIRName().c_str(), -sp_esp);
         }
     }
 
