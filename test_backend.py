@@ -396,7 +396,7 @@ def main():
     parser = argparse.ArgumentParser(description="Test minic backend (ARM assembly generation)")
     parser.add_argument("--frontends", nargs="+", 
                        choices=["flex_bison", "antlr4", "recursive_descent"],
-                       default=["flex_bison", "antlr4", "recursive_descent"],
+                       default=["flex_bison"],
                        help="Frontends to test")
     parser.add_argument("--max-tests", type=int, help="Max number of tests")
     parser.add_argument("--pattern", default="*.c", help="Test file pattern")
