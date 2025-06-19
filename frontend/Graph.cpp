@@ -60,6 +60,9 @@ string getNodeName(ast_node * astnode)
         case ast_operator_type::AST_OP_FUNC_FORMAL_PARAMS:
             nodeName = "formal-params";
             break;
+        case ast_operator_type::AST_OP_FUNC_FORMAL_PARAM:
+            nodeName = "formal-param";
+            break;
         case ast_operator_type::AST_OP_VAR_DECL:
             nodeName = "var-decl";
             break;
@@ -135,6 +138,9 @@ string getNodeName(ast_node * astnode)
         case ast_operator_type::AST_OP_CONTINUE:
             nodeName = "continue";
             break;
+        case ast_operator_type::AST_OP_EMPTY_STMT:
+            nodeName = "empty-stmt";
+            break;
         case ast_operator_type::AST_OP_ARRAY_DECL:
             nodeName = "array-decl";
             break;
@@ -143,6 +149,9 @@ string getNodeName(ast_node * astnode)
             break;
         case ast_operator_type::AST_OP_ARRAY_DIM:
             nodeName = "array-dim";
+            break;
+        case ast_operator_type::AST_OP_EMPTY_DIM:
+            nodeName = "empty-dim";
             break;
         default:
             nodeName = "unknown";
